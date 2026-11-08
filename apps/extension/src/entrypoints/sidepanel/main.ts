@@ -494,7 +494,7 @@ async function startCamera(): Promise<void> {
           ? extensionManifest.content_security_policy
           : extensionManifest.content_security_policy?.extension_pages ?? '';
         if (!/'wasm-unsafe-eval'/.test(policy)) {
-          setStatus(`JARVIS extension v${extensionVersion} is missing WebAssembly permission. Reload or replace it with v3.2.0 at chrome://extensions, then reopen Virtual Reality controls.`, true);
+          setStatus(`JARVIS extension v${extensionVersion} is missing WebAssembly permission. Reload or replace it with v${extensionVersion} at chrome://extensions, then reopen Virtual Reality controls.`, true);
         } else {
           setStatus(`JARVIS v${extensionVersion} includes WebAssembly permission, but Chrome blocked it in this session. Reload JARVIS at chrome://extensions, close this panel, and reopen it.`, true);
         }

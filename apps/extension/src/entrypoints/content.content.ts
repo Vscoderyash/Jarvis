@@ -77,7 +77,7 @@ export default defineContentScript({
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const store = { get: async <T = unknown>(k: string): Promise<T | undefined> => { const values = await chrome.storage.local.get(k); return values[k] as T | undefined; }, set: (k: string, v: unknown) => chrome.storage.local.set({ [k]: v }) };
   type TargetMemory = { el: HTMLElement; label: string; href: string };
-  let pos = { x: 0.92, y: 0.82 }, job: any = null, tabId: number | null = null, running = false, approveResolve: ((approved: boolean) => void) | null = null, lastTarget: TargetMemory | null = null;
+  let pos = { x: 0.92, y: 0.82 }, job: any = null, tabId: number | null = null, running = false, approveResolve: ((approved: boolean) => void) | null = null, lastTarget: TargetMemory | null = null, targetMap: HTMLElement[] = [];
 
   /* ---- orb: position, drag, fly ---- */
   const px = () => ({ x: Math.min(innerWidth - (orb.offsetWidth || 96) - 8, Math.max(8, pos.x * innerWidth)), y: Math.min(innerHeight - (orb.offsetHeight || 96) - 8, Math.max(8, pos.y * innerHeight)) });
@@ -120,29 +120,71 @@ export default defineContentScript({
   $('#no').onclick = () => approveResolve && approveResolve(false);
 
   /* ---- reading the page ---- */
+  const SEMANTIC_TARGETS = 'a[href],button,input:not([type="hidden"]),textarea,select,[role="button"],[role="link"],[role="menuitem"],[role="option"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[onclick],[tabindex]:not([tabindex="-1"]),summary,label,[contenteditable="true"]';
+  function targetLabel(el: HTMLElement) {
+    const target = el as PageElement;
+    const text = el.children.length <= 4 ? el.textContent : el.innerText;
+    return (el.getAttribute('aria-label') || el.getAttribute('title') || target.value || target.placeholder || target.name || el.getAttribute('data-testid') || text || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+  }
+  function isVisiblePageElement(el: HTMLElement) {
+    if (host.contains(el) || el.getAttribute('aria-hidden') === 'true') return false;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 3 || rect.height < 3) return false;
+    const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+  }
+  function clickTargetAt(raw: HTMLElement | null): HTMLElement | null {
+    if (!raw || host.contains(raw)) return null;
+    let node: HTMLElement | null = raw;
+    for (let depth = 0; node && node !== document.body && node !== document.documentElement && depth < 10; depth++, node = node.parentElement) {
+      if (node.matches(SEMANTIC_TARGETS)) return node;
+      if (getComputedStyle(node).cursor === 'pointer') return node;
+    }
+    return raw;
+  }
   function rememberTarget(el: HTMLElement) {
     if (host.contains(el)) return;
     const target = el as PageElement;
-    const label = (target.getAttribute('aria-label') || target.innerText || target.value || target.title || '').trim().replace(/\s+/g, ' ').slice(0, 100);
+    const label = targetLabel(el);
     lastTarget = { el, label, href: target.href || (el instanceof HTMLAnchorElement ? el.href : '') };
   }
   document.addEventListener('pointermove', event => {
     const source = event.target;
     if (!(source instanceof Element)) return;
-    const el = source.closest<HTMLElement>('a[href],button,input,textarea,select,[role=button],[role=link],[onclick]');
-    if (el && !host.contains(el)) rememberTarget(el);
+    const el = clickTargetAt(source instanceof HTMLElement ? source : source.parentElement as HTMLElement | null);
+    if (el) rememberTarget(el);
   }, { capture: true, passive: true });
-  function snap() {
-    document.querySelectorAll('[data-jv]').forEach(x => x.removeAttribute('data-jv'));
+  function snap(limit = 220) {
+    targetMap = [];
     const out: Array<{ id: number; tag: string; type?: string; label: string; href?: string; onScreen: boolean }> = [];
-    document.querySelectorAll<HTMLElement>('a[href],button,input,textarea,select,[role=button],[role=link],[onclick]').forEach(e => {
-      if (out.length >= 160 || host.contains(e)) return;
+    const seen = new Set<HTMLElement>();
+    const add = (e: HTMLElement, allowTextLeaf = false) => {
+      if (out.length >= limit || seen.has(e) || !isVisiblePageElement(e)) return;
+      const label = targetLabel(e);
+      if (!label || !allowTextLeaf && !e.matches(SEMANTIC_TARGETS) && getComputedStyle(e).cursor !== 'pointer') return;
+      seen.add(e);
       const r = e.getBoundingClientRect();
-      if (r.width < 4 || r.height < 4 || getComputedStyle(e).visibility === 'hidden') return;
       const node = e as PageElement;
-      const id = out.length; e.setAttribute('data-jv', String(id));
-      out.push({ id, tag: e.tagName.toLowerCase(), type: node.type || undefined, label: (e.getAttribute('aria-label') || e.innerText || node.value || node.placeholder || node.name || e.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 80), href: node.href ? String(node.href).slice(0, 90) : undefined, onScreen: r.top < innerHeight && r.bottom > 0 });
-    });
+      const id = out.length; targetMap[id] = e;
+      out.push({ id, tag: e.tagName.toLowerCase(), type: node.type || undefined, label: label.slice(0, 80), href: node.href ? String(node.href).slice(0, 90) : undefined, onScreen: r.top < innerHeight && r.bottom > 0 });
+    };
+    // Prioritize semantic controls, then styled custom controls, then short text leaves
+    // so voice matching can still find controls implemented as ordinary divs/spans.
+    document.querySelectorAll<HTMLElement>(SEMANTIC_TARGETS).forEach(e => add(e));
+    if (out.length < limit) {
+      let scanned = 0;
+      for (const e of document.querySelectorAll<HTMLElement>('body *')) {
+        if (++scanned > 8000 || out.length >= limit) break;
+        if (!seen.has(e) && getComputedStyle(e).cursor === 'pointer') add(e);
+      }
+    }
+    if (out.length < limit) {
+      let scanned = 0;
+      for (const e of document.querySelectorAll<HTMLElement>('body *')) {
+        if (++scanned > 12000 || out.length >= limit) break;
+        if (e.children.length === 0) add(e, true);
+      }
+    }
     return out;
   }
   const parse = t => { try { return JSON.parse((String(t).match(/\{[\s\S]*\}/) || [''])[0]); } catch { return null; } };
@@ -176,7 +218,8 @@ export default defineContentScript({
   const save = () => store.set('job' + tabId, job);
   async function finish(msg = '') { if (msg) say('a', msg); if (job) { job.status = 'idle'; await save(); } orb.classList.remove('busy'); }
   async function act(a) {
-    const el = a.id != null ? document.querySelector<HTMLElement>(`[data-jv="${a.id}"]`) : null;
+    const candidate = Number.isInteger(a.id) && a.id >= 0 ? targetMap[a.id] || null : null;
+    const el = candidate?.isConnected ? candidate : null;
     if (a.action === 'done' || a.action === 'ask') { job.awaiting = a.action === 'ask'; if (a.action === 'done') rememberExp(); await finish(); return 'stop'; }
     if (a.action === 'navigate') {
       if (!/^https?:\/\//i.test(a.url || '')) { job.history.push('bad url'); return 'go'; }
@@ -274,17 +317,21 @@ export default defineContentScript({
     if (m.type === 'gesture:click') {
       const nx = Number(m.nx), ny = Number(m.ny);
       if (![nx, ny].every(Number.isFinite)) { sendResponse({ ok: false, message: 'Hand position was not available.' }); return; }
-      const raw = document.elementFromPoint(Math.max(0, Math.min(1, nx)) * innerWidth, Math.max(0, Math.min(1, ny)) * innerHeight) as HTMLElement | null;
-      const target = raw?.closest<HTMLElement>('a,button,[role="button"],input:not([type="hidden"]),textarea,select,[contenteditable="true"]');
-      if (!target || host.contains(target) || (target as HTMLButtonElement).disabled) { sendResponse({ ok: false, message: 'No clickable page control was under Pip’s cursor.' }); return; }
-      const label = (target.getAttribute('aria-label') || target.getAttribute('title') || target.innerText || (target as HTMLInputElement).value || '').trim().slice(0, 160);
-      const risky = /\b(send|submit|buy|purchase|pay|place order|book|delete|remove|transfer|post|publish|confirm|log out|sign out)\b/i;
-      const targetDetails = [label, target.id, (target as HTMLInputElement).name, (target as HTMLInputElement).type, target.getAttribute('autocomplete')].join(' ');
-      const submitsForm = target instanceof HTMLButtonElement && target.type === 'submit' || target instanceof HTMLInputElement && target.type === 'submit';
-      if (SECRET.test(targetDetails) || risky.test(label) || submitsForm) {
-        toggle(true); say('s', 'Pinch click paused on a sensitive action. Use the page controls and confirm it yourself.'); sendResponse({ ok: false, message: 'Sensitive action paused; use the page controls to confirm it yourself.' }); return;
-      }
-      target.click(); sendResponse({ ok: true }); return;
+      const x = Math.max(0, Math.min(1, nx)) * innerWidth, y = Math.max(0, Math.min(1, ny)) * innerHeight;
+      const raw = document.elementFromPoint(x, y) as HTMLElement | null;
+      const target = clickTargetAt(raw);
+      if (!target || (target as HTMLButtonElement).disabled || target.getAttribute('aria-disabled') === 'true') { sendResponse({ ok: false, message: 'There is no page element under Pip’s cursor.' }); return; }
+      void (async () => {
+        const label = targetLabel(target).slice(0, 160);
+        if (!(await mayClick(target, label))) { sendResponse({ ok: false, message: 'Click cancelled.' }); return; }
+        const pointer = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        try { target.dispatchEvent(new PointerEvent('pointerdown', pointer)); } catch {}
+        target.dispatchEvent(new MouseEvent('mousedown', pointer));
+        try { target.dispatchEvent(new PointerEvent('pointerup', { ...pointer, buttons: 0 })); } catch {}
+        target.dispatchEvent(new MouseEvent('mouseup', { ...pointer, buttons: 0 }));
+        target.click(); sendResponse({ ok: true });
+      })().catch(() => sendResponse({ ok: false, message: 'The page did not accept that click.' }));
+      return true;
     }
     if (m.type === 'gesture:type') {
       const value = String(m.value || '');
@@ -324,9 +371,17 @@ export default defineContentScript({
   const norm = (input: string) => normalizeSpokenText(input, aliases);
   async function touch(el: HTMLElement) { rememberTarget(el); el.scrollIntoView({ block: 'center', behavior: brain === 'smart' ? 'smooth' : 'auto' }); if (brain === 'smart') await sleep(240); el.style.outline = '2px solid #8eaaff'; window.setTimeout(() => (el.style.outline = ''), 1200); }
   function pick(q: string, ok?: (element: { tag: string; type?: string; onScreen: boolean }) => boolean): HTMLElement | null {
+    const trimmed = q.trim();
+    const selector = trimmed.match(/^(?:css(?:\s+selector)?|selector)\s*:?\s*(.+)$/i)?.[1]?.trim() || (['#', '.', '['].includes(trimmed[0]) ? trimmed : '');
+    if (selector) {
+      try {
+        const selected = document.querySelector<HTMLElement>(selector);
+        if (selected && isVisiblePageElement(selected) && !host.contains(selected)) return selected;
+      } catch { /* Fall through to accessible label matching when the selector is invalid. */ }
+    }
     const w = q.toLowerCase().replace(/^(the|a|an)\s+/, '').replace(/\s+(button|link|tab|icon|field|box|option)$/, '').trim(); let best = null, bs = 0;
-    for (const e of snap()) { if (ok && !ok(e)) continue; if (!e.label) continue; let sc = scoreLabel(e.label, w); if (sc < .6) continue; sc += (e.onScreen ? .05 : 0) - e.label.length / 20000; if (sc > bs) { bs = sc; best = e; } }
-    return best ? document.querySelector<HTMLElement>(`[data-jv="${best.id}"]`) : null;
+    for (const e of snap(900)) { if (ok && !ok(e)) continue; if (!e.label) continue; let sc = scoreLabel(e.label, w); if (sc < .6) continue; sc += (e.onScreen ? .05 : 0) - e.label.length / 20000; if (sc > bs) { bs = sc; best = e; } }
+    return best ? targetMap[best.id] || null : null;
   }
   function nthEl(kind, n) {
     const vid = /video|song|short/.test(kind), seen = new Set(), list = [];
@@ -422,7 +477,7 @@ export default defineContentScript({
     if (c.t === 'type') {
       const field = (e: { tag: string; type?: string }) => /^(input|textarea)$/.test(e.tag) && !/^(hidden|checkbox|radio|submit|button|file)$/.test(e.type || '');
       let el = c.q ? pick(c.q, field) : null;
-      if (!el && !c.q) { const a = document.activeElement; el = a && /^(INPUT|TEXTAREA)$/.test(a.tagName) ? a as HTMLElement : (() => { const f = snap().find(e => field(e) && e.onScreen); return f ? document.querySelector<HTMLElement>(`[data-jv="${f.id}"]`) : null; })(); }
+      if (!el && !c.q) { const a = document.activeElement; el = a && /^(INPUT|TEXTAREA)$/.test(a.tagName) ? a as HTMLElement : (() => { const f = snap().find(e => field(e) && e.onScreen); return f ? targetMap[f.id] || null : null; })(); }
       if (!el) { say('e', 'I could not find a text box to type in.'); return true; }
       const node = el as PageElement;
       if (SECRET.test([node.type, node.name, el.id, node.autocomplete].join(' '))) { say('e', 'I never fill passwords or payment fields. Please type that yourself.'); return true; }

@@ -1,0 +1,14 @@
+{
+  "name": "JARVIS AI Assistant",
+  "short_name": "JARVIS",
+  "description": "JARVIS chat, coding, research, and saved memory.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1c1c1c",
+  "theme_color": "#1c1c1c",
+  "icons": [
+    { "src": "/jarvis-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

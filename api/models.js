@@ -58,11 +58,11 @@ module.exports = async (req, res) => {
     { id: 'openrouter', name: 'OpenRouter', key: process.env.OPENROUTER_API_KEY },
     { id: 'anthropic', name: 'Anthropic', key: process.env.ANTHROPIC_API_KEY },
   ];
-  const needsGate = providers.some(provider => provider.id !== 'nvidia' && provider.key) || Boolean(process.env.JARVIS_ACCESS_TOKEN);
+  const needsGate = providers.some(provider => provider.id !== 'nvidia' && provider.key);
   const authorized = hasValidAccess(req);
   const results = await Promise.all(providers.map(async provider => {
     if (!provider.key) return { id: provider.id, name: provider.name, configured: false, locked: false, models: [] };
-    const locked = (Boolean(process.env.JARVIS_ACCESS_TOKEN) && !authorized) || (provider.id !== 'nvidia' && needsGate && (!process.env.JARVIS_ACCESS_TOKEN || !authorized));
+    const locked = provider.id !== 'nvidia' && (!process.env.JARVIS_ACCESS_TOKEN || !authorized);
     if (locked) return { id: provider.id, name: provider.name, configured: true, locked: true, models: [] };
     try {
       const models = await getModels(provider.id, provider.key, authorized);
