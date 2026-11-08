@@ -345,7 +345,7 @@ export default defineContentScript({
     if (c.t === 'vr') {
       const result = await bg<{ ok?: boolean; message?: string }>({ type: `vr:${c.op}` });
       if (!result?.ok) say('e', result?.message || 'Open the JARVIS Virtual Reality side panel, allow camera access, and try again.');
-      else say('a', c.op === 'start' ? 'Starting Virtual Reality. Move your index finger to point; pinch and release to click.' : 'Virtual Reality stopped.');
+      else say('a', ({ start: 'Starting Virtual Reality. Move your index finger to point; pinch and release to click.', stop: 'Virtual Reality stopped.', pause: 'Hand tracking paused. Say “resume virtual reality” to continue.', resume: 'Hand tracking resumed. Release your fingers once before pinching to click.' } as const)[c.op]);
       return true;
     }
     if (c.t === 'wake') { activate(false); return true; }

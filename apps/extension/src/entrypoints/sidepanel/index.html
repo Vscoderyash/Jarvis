@@ -11,6 +11,7 @@
       header svg{width:46px;height:46px;image-rendering:pixelated}header div{display:flex;flex:1;flex-direction:column}header strong{font-size:15px;font-weight:600}header small,.muted{color:#a0a0a0;font-size:12px}
       main{display:flex;flex-direction:column;gap:12px;padding-top:14px}.privacy{border:1px solid #35363a;border-radius:12px;background:#222326;padding:11px;color:#c5c5c5;font-size:12px}
       .preview{position:relative;overflow:hidden;aspect-ratio:4/3;border:1px solid #3a3b3e;border-radius:14px;background:#101113;isolation:isolate}
+      .tracking-badge{position:absolute;top:8px;left:8px;z-index:4;padding:4px 7px;border:1px solid #ffffff18;border-radius:999px;background:#15161bd9;color:#c8c8c8;font-size:10px;pointer-events:none}.preview:not(.active) .tracking-badge{display:none}
       #video{display:none;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.preview.active #video{display:block}
       #cameraCursor{display:none;position:absolute;left:50%;top:45%;z-index:2;width:20px;height:20px;margin:-10px;border:2px solid #9eb9ff;border-radius:50%;box-shadow:0 0 12px #789cff;pointer-events:none}
       #previewHint{position:absolute;inset:0;display:grid;place-content:center;text-align:center;padding:20px;color:#92939a;font-size:12px}.preview.active #previewHint{display:none}
@@ -18,6 +19,7 @@
       .key-row{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:3px}.air-key{min-width:0;border:1px solid #ffffff17;border-radius:5px;background:#35363a;color:#ececec;font:600 10px system-ui;display:grid;place-items:center}.air-key.special{background:#40434b;color:#c6d2ff}.air-key.hover{background:#aebfff;color:#121318;border-color:#d3dcff;box-shadow:0 0 10px #9eb9ff88}
       .modes{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border-radius:11px;background:#242528}.mode{padding:8px 10px;border-radius:8px;color:#aaa;font-weight:500}.mode.selected{background:#3a3b3f;color:#fff;box-shadow:0 1px 2px #0006}
       .actions{display:flex;gap:8px}.actions button{flex:1;border-radius:10px;padding:10px 12px;font-weight:600}.primary{background:#f0f0f0;color:#161616}.secondary{background:#383a3e;color:#ededed}.actions button:disabled{opacity:.45;cursor:default}.permission-help{width:100%;padding:9px 10px;border:1px solid #565b68;border-radius:9px;background:#292c33;color:#cbd5ff;text-align:left;font-size:12px}.permission-help[hidden]{display:none}
+      .camera-choice{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;color:#a0a0a0;font-size:12px}.camera-choice select{min-width:0;width:100%;border:1px solid #35363a;border-radius:9px;background:#222326;color:#ececec;padding:8px;font:inherit}.tracking-settings{border:1px solid #35363a;border-radius:10px;background:#202123;padding:9px 10px}.tracking-settings summary{cursor:pointer;color:#c5c5c5;font-weight:600}.slider-row{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;margin-top:10px;color:#aaa;font-size:11px}.slider-row input{grid-column:1/-1;width:100%;accent-color:#9eb9ff}.slider-row output{color:#e5e5e5;font-variant-numeric:tabular-nums}.tracking-tools{display:flex;gap:8px;margin-top:10px}.tracking-tools button{flex:1;border:1px solid #45474d;border-radius:8px;padding:7px;background:#2b2c30;color:#ddd;font-size:11px}.tracking-tools button:disabled{opacity:.45}
       #status{min-height:34px;padding:9px 10px;border-radius:10px;background:#222326;color:#c8c8c8;font-size:12px}#status[data-kind="error"]{color:#ffb3a9}
       .help{margin:0;padding:0 0 0 18px;color:#a4a4a4;font-size:12px}.help li{margin:4px 0}.foot{border-top:1px solid #343538;padding-top:10px;color:#888;font-size:11px}
       button:focus-visible{outline:2px solid #b4c5ff;outline-offset:2px}
@@ -34,16 +36,26 @@
         <video id="video" muted playsinline></video>
         <div id="cameraCursor" aria-hidden="true"></div>
         <div id="previewHint">Camera is off<br><span class="muted">Start it when you're ready</span></div>
+        <div id="trackingBadge" class="tracking-badge">Hand: waiting</div>
         <div id="airKeys" hidden aria-label="Air keyboard"></div>
       </div>
       <div class="modes" role="group" aria-label="Hand control mode">
         <button type="button" id="browseMode" class="mode selected">Browse</button>
         <button type="button" id="typeMode" class="mode">Air keyboard</button>
       </div>
-      <div class="actions"><button type="button" id="start" class="primary">Start camera</button><button type="button" id="stop" class="secondary" disabled>Stop</button></div>
+      <label class="camera-choice" for="cameraDevice">Camera<select id="cameraDevice"><option value="">Default camera</option></select></label>
+      <details class="tracking-settings"><summary>Tracking setup</summary>
+        <label class="slider-row" for="responseSpeed">Cursor response <output id="responseValue">42%</output><input id="responseSpeed" type="range" min="15" max="80" value="42"></label>
+        <label class="slider-row" for="cursorGain">Cursor range <output id="cursorGainValue">100%</output><input id="cursorGain" type="range" min="75" max="140" value="100"></label>
+        <label class="slider-row" for="pinchSensitivity">Pinch sensitivity <output id="pinchValue">100%</output><input id="pinchSensitivity" type="range" min="70" max="135" value="100"></label>
+        <label class="slider-row" for="scrollSpeed">Scroll speed <output id="scrollValue">100%</output><input id="scrollSpeed" type="range" min="60" max="200" value="100"></label>
+        <label class="slider-row" for="handConfidence">Hand detection <output id="confidenceValue">55%</output><input id="handConfidence" type="range" min="40" max="80" value="55"></label>
+        <div class="tracking-tools"><button id="centerCursor" type="button" disabled>Center cursor</button></div>
+      </details>
+      <div class="actions"><button type="button" id="start" class="primary">Start camera</button><button type="button" id="pause" class="secondary" disabled>Pause</button><button type="button" id="stop" class="secondary" disabled>Stop</button></div>
       <button type="button" id="permissionHelp" class="permission-help" hidden>Open camera permission setup</button>
       <div id="status" role="status" aria-live="polite">Camera is off. Say “virtual reality” to start, or choose a mode and press Start camera.</div>
-      <ul class="help" id="browseHelp"><li>Point to move the page cursor.</li><li>Pinch and release to click; pinch and drag up or down to scroll.</li><li>Risky actions such as sending, buying, deleting, or submitting are blocked.</li></ul>
+      <ul class="help" id="browseHelp"><li>Point to move the page cursor.</li><li>Pinch and release to click; pinch and drag up or down to scroll.</li><li>Tracking setup adjusts your camera, movement, pinch, scrolling, and detection. Pause here or say “pause virtual reality”.</li><li>Risky actions such as sending, buying, deleting, or submitting are blocked.</li></ul>
       <ul class="help" id="typeHelp" hidden><li>Focus a text field on the page before typing.</li><li>Point at a key and pinch to type. Shift and backspace are supported.</li><li>Air typing never presses Enter or submits a form.</li></ul>
       <p class="foot">Works on normal http/https pages. Camera video stays on this device and is stopped when you stop or close the panel.</p>
     </main>

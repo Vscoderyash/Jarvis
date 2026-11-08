@@ -20,6 +20,13 @@ def _distance(a, b, width, height):
     return math.hypot((a.x - b.x) * width, (a.y - b.y) * height)
 
 
+def _bounded(value, default, low, high):
+    try:
+        return min(high, max(low, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _download_model():
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     if MODEL_PATH.exists() and MODEL_PATH.stat().st_size > 1_000_000:
@@ -42,11 +49,21 @@ def _download_model():
 class HandController:
     """Move the desktop pointer with the index tip; pinch and release to click."""
 
-    def __init__(self, on_state=None, log=print, camera_index=0):
+    def __init__(self, on_state=None, log=print, camera_index=0, settings=None):
         self.on_state = on_state
         self.log = log
         self.camera_index = int(camera_index or 0)
+        settings = settings or {}
+        self.response = _bounded(settings.get("vr_response"), 0.4, 0.12, 0.85)
+        self.deadzone = _bounded(settings.get("vr_deadzone"), 0.003, 0.0, 0.03)
+        self.pinch_press_ratio = _bounded(settings.get("vr_pinch_press_ratio"), 0.30, 0.12, 0.48)
+        self.pinch_release_ratio = max(self.pinch_press_ratio + 0.05, _bounded(settings.get("vr_pinch_release_ratio"), 0.48, 0.2, 0.9))
+        self.stable_frames = int(_bounded(settings.get("vr_stable_frames"), 2, 1, 6))
+        self.detection_confidence = _bounded(settings.get("vr_detection_confidence"), 0.55, 0.35, 0.9)
+        self.presence_confidence = _bounded(settings.get("vr_presence_confidence"), 0.5, 0.35, 0.9)
+        self.tracking_confidence = _bounded(settings.get("vr_tracking_confidence"), 0.5, 0.35, 0.9)
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._lock = threading.Lock()
         self._thread = None
         self._active = False
@@ -65,11 +82,29 @@ class HandController:
     def start(self):
         with self._lock:
             if self._thread and self._thread.is_alive():
+                if self._pause_event.is_set():
+                    self._pause_event.clear()
+                    return True, "Virtual Reality resumed. Release your fingers once before pinching to click."
                 return True, "Virtual Reality is already active. Move your index finger; pinch and release to click."
             self._stop_event.clear()
+            self._pause_event.clear()
             self._thread = threading.Thread(target=self._run, name="JARVIS-Hand-Control", daemon=True)
             self._thread.start()
         return True, "Starting Virtual Reality camera control. Keep one hand in view."
+
+    def pause(self):
+        if not self._thread or not self._thread.is_alive():
+            return False, "Virtual Reality is not running. Say ‘virtual reality’ to start it."
+        self._pause_event.set()
+        self._set_state(True, "Virtual Reality paused. Say ‘resume virtual reality’ or press P in the preview to continue.")
+        return True, "Virtual Reality paused. Say ‘resume virtual reality’ or press P in the preview to continue."
+
+    def resume(self):
+        if not self._thread or not self._thread.is_alive():
+            return False, "Virtual Reality is not running. Say ‘virtual reality’ to start it."
+        self._pause_event.clear()
+        self._set_state(True, "Virtual Reality resumed. Release your fingers once before pinching to click.")
+        return True, "Virtual Reality resumed. Release your fingers once before pinching to click."
 
     def stop(self):
         self._stop_event.set()
@@ -81,7 +116,10 @@ class HandController:
     def _run(self):
         cap = detector = cv2 = pyautogui = None
         mouse_down = False
+        pinch_armed = True
+        pinch_down_frames = pinch_up_frames = 0
         old_pause = None
+        paused_state = False
         end_message = "Virtual Reality is off."
         last_status_at = 0.0
         smooth_x = smooth_y = None
@@ -104,9 +142,9 @@ class HandController:
                 base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
                 running_mode=vision.RunningMode.VIDEO,
                 num_hands=1,
-                min_hand_detection_confidence=0.55,
-                min_hand_presence_confidence=0.5,
-                min_tracking_confidence=0.5,
+                min_hand_detection_confidence=self.detection_confidence,
+                min_hand_presence_confidence=self.presence_confidence,
+                min_tracking_confidence=self.tracking_confidence,
             )
             detector = vision.HandLandmarker.create_from_options(options)
             if self._stop_event.is_set():
@@ -127,7 +165,7 @@ class HandController:
             old_pause = pyautogui.PAUSE
             pyautogui.PAUSE = 0
             pyautogui.FAILSAFE = True
-            self._set_state(True, "Virtual Reality is on. Move your index finger; pinch and release to click. Press Q in the camera preview or say ‘stop virtual reality’ to exit.")
+            self._set_state(True, "Virtual Reality is on. Move your index finger; pinch and release to click. Press P to pause, Q to stop, or say the same.")
 
             while not self._stop_event.is_set():
                 ok, frame = cap.read()
@@ -136,6 +174,29 @@ class HandController:
                     continue
                 frame = cv2.flip(frame, 1)
                 height, width = frame.shape[:2]
+                if self._pause_event.is_set():
+                    if not paused_state:
+                        self._set_state(True, "Virtual Reality paused. Press P or say ‘resume virtual reality’ to continue.")
+                        paused_state = True
+                    if mouse_down:
+                        pyautogui.mouseUp()
+                        mouse_down = False
+                    pinching = False
+                    pinch_armed = False
+                    pinch_down_frames = pinch_up_frames = 0
+                    smooth_x = smooth_y = None
+                    cv2.putText(frame, "JARVIS VIRTUAL REALITY  |  PAUSED", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (235, 240, 255), 2, cv2.LINE_AA)
+                    cv2.putText(frame, "P: resume  |  Q: stop  |  say: resume virtual reality", (12, height - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 210, 230), 1, cv2.LINE_AA)
+                    cv2.imshow("JARVIS Virtual Reality", frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        self._stop_event.set()
+                    elif key == ord("p"):
+                        self._pause_event.clear()
+                    continue
+                if paused_state:
+                    paused_state = False
+                    self._set_state(True, "Virtual Reality resumed. Release your fingers once before pinching to click.")
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 result = detector.detect_for_video(image, int(time.monotonic() * 1000))
@@ -147,19 +208,37 @@ class HandController:
                     tip = hand[8]
                     x = min(1.0, max(0.0, (tip.x - 0.06) / 0.88))
                     y = min(1.0, max(0.0, (tip.y - 0.08) / 0.84))
-                    smooth_x = x if smooth_x is None else smooth_x + (x - smooth_x) * 0.38
-                    smooth_y = y if smooth_y is None else smooth_y + (y - smooth_y) * 0.38
+                    if smooth_x is None or smooth_y is None:
+                        smooth_x, smooth_y = x, y
+                    else:
+                        dx, dy = x - smooth_x, y - smooth_y
+                        movement = math.hypot(dx, dy)
+                        if movement < self.deadzone:
+                            x, y = smooth_x, smooth_y
+                        alpha = min(0.9, self.response + movement * 1.8)
+                        smooth_x += (x - smooth_x) * alpha
+                        smooth_y += (y - smooth_y) * alpha
                     pyautogui.moveTo(int(smooth_x * (screen_width - 1)), int(smooth_y * (screen_height - 1)))
 
                     palm = max(1.0, _distance(hand[0], hand[9], width, height))
                     pinch_ratio = _distance(hand[4], hand[8], width, height) / palm
-                    if not pinching and pinch_ratio < 0.30:
+                    if not pinch_armed:
+                        if pinch_ratio >= self.pinch_release_ratio:
+                            pinch_armed = True
+                        pinch_down_frames = pinch_up_frames = 0
+                    elif not pinching:
+                        pinch_down_frames = pinch_down_frames + 1 if pinch_ratio < self.pinch_press_ratio else 0
+                    else:
+                        pinch_up_frames = pinch_up_frames + 1 if pinch_ratio > self.pinch_release_ratio else 0
+                    if pinch_armed and not pinching and pinch_down_frames >= self.stable_frames:
                         pinching = True
+                        pinch_down_frames = pinch_up_frames = 0
                         mouse_down = True
                         pyautogui.mouseDown()
                         self._set_state(True, "Pinch detected. Release to click; keep pinching and move to drag.")
-                    elif pinching and pinch_ratio > 0.48:
+                    elif pinching and pinch_up_frames >= self.stable_frames:
                         pinching = False
+                        pinch_down_frames = pinch_up_frames = 0
                         if mouse_down:
                             pyautogui.mouseUp()
                             mouse_down = False
@@ -181,6 +260,8 @@ class HandController:
                     if mouse_down:
                         pyautogui.mouseUp()
                         mouse_down = pinching = False
+                    pinch_armed = True
+                    pinch_down_frames = pinch_up_frames = 0
                     smooth_x = smooth_y = None
                     cursor_text = "SHOW ONE HAND"
                     if now - last_status_at > 1.5:
@@ -188,10 +269,14 @@ class HandController:
                         last_status_at = now
 
                 cv2.putText(frame, "JARVIS VIRTUAL REALITY  |  " + cursor_text, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (235, 240, 255), 2, cv2.LINE_AA)
-                cv2.putText(frame, "Q: stop  |  say: stop virtual reality", (12, height - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 210, 230), 1, cv2.LINE_AA)
+                cv2.putText(frame, "P: pause  |  Q: stop  |  say: pause or stop virtual reality", (12, height - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 210, 230), 1, cv2.LINE_AA)
                 cv2.imshow("JARVIS Virtual Reality", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
                     self._stop_event.set()
+                elif key == ord("p"):
+                    self._pause_event.set()
+                    pinch_armed = False
 
         except Exception as error:
             message = str(error) or type(error).__name__

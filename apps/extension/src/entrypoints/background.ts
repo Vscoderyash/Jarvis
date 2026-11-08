@@ -104,7 +104,7 @@ async function ask(messages, phase, tabId) {
 chrome.runtime.onMessage.addListener((m, s, send) => {
   if (m.type === 'tabId') { send(s.tab && s.tab.id); return; }
   if (m.type === 'stop') { if (typeof s.tab?.id === 'number') activeRequests.get(s.tab.id)?.abort(); send(true); return; }
-  if (m.type === 'vr:start' || m.type === 'vr:stop') {
+  if (['vr:start', 'vr:stop', 'vr:pause', 'vr:resume'].includes(m.type)) {
     const windowId = s.tab?.windowId;
     if (m.type === 'vr:stop') { send({ ok: true }); return; }
     if (typeof windowId !== 'number') { send({ ok: false, message: 'Open a normal website tab before using Virtual Reality.' }); return; }

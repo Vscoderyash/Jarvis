@@ -45,7 +45,7 @@ API ACCESS (401)
  The website route is /api/chat; a 401 means the route was reached but the local token is missing or does not match.
 
 VIRTUAL REALITY HAND CONTROL
- Say "virtual reality" to start the desktop camera and move the mouse with your index fingertip. Pinch and release to click; keep pinching while moving to drag. Say "stop virtual reality" or press Q in the preview to stop. This phrase works without saying the wake word first. The live preview and hand tracking run locally; the first use downloads the hand model. Pressing a screen corner triggers PyAutoGUI's failsafe.
+ Say "virtual reality" to start the desktop camera and move the mouse with your index fingertip. Pinch and release to click; keep pinching while moving to drag. Say "pause virtual reality" to pause safely, then "resume virtual reality" to continue. Press P in the preview to toggle pause; press Q or say "stop virtual reality" to stop. These phrases work without saying the wake word first. The live preview and hand tracking run locally; the first use downloads the hand model. Pressing a screen corner triggers PyAutoGUI's failsafe. Cursor smoothing, jitter deadzone, pinch thresholds, required stable frames, and hand confidence can be tuned in config.json.
  The installer adds MediaPipe and OpenCV from requirements-vr.txt. If their install reports an error, rerun install_windows.bat with Python 3.10-3.12, or activate the venv and run: pip install -r requirements-vr.txt. On macOS, grant camera and Accessibility permissions to Terminal/JARVIS. On Windows, allow camera access for desktop apps in Settings > Privacy & security > Camera.
 
 BROWSER VIRTUAL REALITY
@@ -61,6 +61,12 @@ SETTINGS  (jarvis_desktop/config.json)
  ui_scale       0.5 to 2.5  makes the orb smaller or bigger        mic_device  a number if the wrong microphone is used
  api_url        the built-in JARVIS website API
  camera_index   camera number (0 is the default camera)
+ vr_response    cursor response from 0.12 (smooth) to 0.85 (fast); default 0.4
+ vr_deadzone    ignore tiny movement jitter from 0.0 to 0.03; default 0.003
+ vr_pinch_press_ratio    normalized pinch distance to press; default 0.30
+ vr_pinch_release_ratio  normalized distance to release; default 0.48
+ vr_stable_frames        consecutive frames required for a pinch transition; default 2
+ vr_detection_confidence, vr_presence_confidence, vr_tracking_confidence  MediaPipe thresholds from 0.35 to 0.9
 
 PRIVACY
  Your voice is converted to text on your own computer (nothing is uploaded). The text of what you ask is sent to your JARVIS

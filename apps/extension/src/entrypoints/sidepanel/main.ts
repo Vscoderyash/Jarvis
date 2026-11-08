@@ -3,6 +3,8 @@ import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 type Point = { x: number; y: number };
 type Key = { label: string; value: string; kind?: 'shift' | 'backspace' };
 type GestureMode = 'browse' | 'keyboard';
+type TrackingSettings = { response: number; cursorGain: number; pinchSensitivity: number; scrollSpeed: number; handConfidence: number; cameraDeviceId: string };
+const DEFAULT_TRACKING_SETTINGS: TrackingSettings = { response: 0.42, cursorGain: 1, pinchSensitivity: 1, scrollSpeed: 1, handConfidence: 0.55, cameraDeviceId: '' };
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
@@ -17,10 +19,27 @@ const keysElement = $('airKeys');
 const statusElement = $('status');
 const startButton = $('start') as HTMLButtonElement;
 const stopButton = $('stop') as HTMLButtonElement;
+const pauseButton = $('pause') as HTMLButtonElement;
 const permissionHelpButton = $('permissionHelp') as HTMLButtonElement;
+const cameraDevice = $('cameraDevice') as HTMLSelectElement;
+const centerCursorButton = $('centerCursor') as HTMLButtonElement;
+const trackingBadge = $('trackingBadge');
 const extensionManifest = chrome.runtime.getManifest();
 const extensionVersion = extensionManifest.version;
 $('buildVersion').textContent = `Hand control for the active tab · v${extensionVersion}`;
+let trackingSettings: TrackingSettings = { ...DEFAULT_TRACKING_SETTINGS };
+const trackingSettingsReady = chrome.storage.local.get('gestureSettings').then((values) => {
+  const saved = values.gestureSettings as Partial<TrackingSettings> | undefined;
+  if (!saved || typeof saved !== 'object') return;
+  trackingSettings = {
+    response: clamp(Number(saved.response) || DEFAULT_TRACKING_SETTINGS.response, 0.15, 0.8),
+    cursorGain: clamp(Number(saved.cursorGain) || 1, 0.75, 1.4),
+    pinchSensitivity: clamp(Number(saved.pinchSensitivity) || 1, 0.7, 1.35),
+    scrollSpeed: clamp(Number(saved.scrollSpeed) || 1, 0.6, 2),
+    handConfidence: clamp(Number(saved.handConfidence) || 0.55, 0.4, 0.8),
+    cameraDeviceId: typeof saved.cameraDeviceId === 'string' ? saved.cameraDeviceId : '',
+  };
+}).catch(() => {});
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const rows: Key[][] = [
   [...'QWERTYUIOP'].map((value) => ({ label: value, value: value.toLowerCase() })),
@@ -41,11 +60,19 @@ let lastFrame = 0;
 let lastCursor = 0;
 let lastStatus = 0;
 let pinchWasDown = false;
+let pinchStableFrames = 0;
 let pinchStart: Point | null = null;
 let previousPinch: Point | null = null;
 let dragDistance = 0;
 let scrollRemainder = 0;
 let lastScroll = 0;
+let lastClickAt = 0;
+let lastTypedAt = 0;
+let smoothedPoint: Point | null = null;
+let latestRawPoint: Point | null = null;
+let cursorOffset: Point = { x: 0, y: 0 };
+let trackingPaused = false;
+let handVisible = false;
 let airShift = false;
 let activeKey: { row: number; col: number } | null = null;
 
@@ -53,6 +80,70 @@ function setStatus(message: string, error = false): void {
   statusElement.textContent = message;
   statusElement.dataset.kind = error ? 'error' : 'normal';
 }
+
+function syncTrackingControls(): void {
+  ($('responseSpeed') as HTMLInputElement).value = String(Math.round(trackingSettings.response * 100));
+  $('responseValue').textContent = `${Math.round(trackingSettings.response * 100)}%`;
+  ($('cursorGain') as HTMLInputElement).value = String(Math.round(trackingSettings.cursorGain * 100));
+  $('cursorGainValue').textContent = `${Math.round(trackingSettings.cursorGain * 100)}%`;
+  ($('pinchSensitivity') as HTMLInputElement).value = String(Math.round(trackingSettings.pinchSensitivity * 100));
+  $('pinchValue').textContent = `${Math.round(trackingSettings.pinchSensitivity * 100)}%`;
+  ($('scrollSpeed') as HTMLInputElement).value = String(Math.round(trackingSettings.scrollSpeed * 100));
+  $('scrollValue').textContent = `${Math.round(trackingSettings.scrollSpeed * 100)}%`;
+  ($('handConfidence') as HTMLInputElement).value = String(Math.round(trackingSettings.handConfidence * 100));
+  $('confidenceValue').textContent = `${Math.round(trackingSettings.handConfidence * 100)}%`;
+}
+
+function persistTrackingSettings(): void {
+  void chrome.storage.local.set({ gestureSettings: trackingSettings });
+}
+
+void trackingSettingsReady.then(() => {
+  syncTrackingControls();
+  void refreshCameras(trackingSettings.cameraDeviceId);
+});
+
+function bindTrackingSlider(id: string, outputId: string, field: keyof Omit<TrackingSettings, 'cameraDeviceId'>): void {
+  const input = $(id) as HTMLInputElement;
+  input.addEventListener('input', () => {
+    const value = Number(input.value);
+    if (field === 'response') trackingSettings.response = value / 100;
+    else if (field === 'cursorGain') trackingSettings.cursorGain = value / 100;
+    else if (field === 'pinchSensitivity') trackingSettings.pinchSensitivity = value / 100;
+    else if (field === 'scrollSpeed') trackingSettings.scrollSpeed = value / 100;
+    else trackingSettings.handConfidence = value / 100;
+    $(outputId).textContent = `${value}%`;
+    persistTrackingSettings();
+    if (field === 'handConfidence' && running) setStatus('Detection confidence saved. Stop and restart the camera to apply it.');
+  });
+}
+
+bindTrackingSlider('responseSpeed', 'responseValue', 'response');
+bindTrackingSlider('cursorGain', 'cursorGainValue', 'cursorGain');
+bindTrackingSlider('pinchSensitivity', 'pinchValue', 'pinchSensitivity');
+bindTrackingSlider('scrollSpeed', 'scrollValue', 'scrollSpeed');
+bindTrackingSlider('handConfidence', 'confidenceValue', 'handConfidence');
+
+async function refreshCameras(preferredId = ''): Promise<void> {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const cameras = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === 'videoinput');
+    const previous = preferredId || cameraDevice.value || trackingSettings.cameraDeviceId;
+    cameraDevice.replaceChildren(new Option('Default camera', ''));
+    cameras.forEach((device, index) => cameraDevice.add(new Option(device.label || `Camera ${index + 1}`, device.deviceId)));
+    cameraDevice.value = cameras.some((device) => device.deviceId === previous) ? previous : '';
+    trackingSettings.cameraDeviceId = cameraDevice.value;
+    cameraDevice.disabled = running || cameras.length < 2;
+    persistTrackingSettings();
+  } catch {
+    cameraDevice.disabled = true;
+  }
+}
+
+cameraDevice.addEventListener('change', () => {
+  trackingSettings.cameraDeviceId = cameraDevice.value;
+  persistTrackingSettings();
+});
 
 function renderKeys(): void {
   keysElement.replaceChildren();
@@ -84,6 +175,10 @@ function setMode(next: GestureMode): void {
   if (mode === 'keyboard' && running) setStatus('Air keyboard ready. Focus a text box on the page, then point at a key and pinch.');
   activeKey = null;
   airShift = false;
+  pinchWasDown = false;
+  pinchStableFrames = 0;
+  pinchStart = null;
+  previousPinch = null;
   updateKeyHighlight(null);
   if (mode === 'keyboard') cursor.style.display = 'none';
 }
@@ -174,27 +269,54 @@ function setCameraStatus(message: string, now: number): void {
 function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: number): void {
   const hand = result.landmarks?.[0];
   if (!hand || hand.length < 9) {
+    if (handVisible && mode === 'browse') void sendToActivePage({ type: 'gesture:off' });
+    handVisible = false;
     pinchWasDown = false;
+    pinchStableFrames = 0;
     pinchStart = null;
     previousPinch = null;
     dragDistance = 0;
     scrollRemainder = 0;
+    smoothedPoint = null;
+    latestRawPoint = null;
+    centerCursorButton.disabled = true;
+    trackingBadge.textContent = 'Hand: not found';
     updateKeyHighlight(null);
     if (mode === 'browse') cursor.style.display = 'none';
     setCameraStatus('Show one hand to the camera, palm facing toward you.', now);
     return;
   }
 
+  handVisible = true;
+  centerCursorButton.disabled = trackingPaused;
+  trackingBadge.textContent = 'Hand: tracking';
   // Mirror the normalized camera coordinates so movement matches the mirrored preview.
-  const point = { x: clamp(1 - hand[8].x, 0, 1), y: clamp(hand[8].y, 0, 1) };
-  const pinchDistance = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y);
-  const pinching = pinchWasDown ? pinchDistance < 0.075 : pinchDistance < 0.052;
+  const rawPoint = { x: clamp(1 - hand[8].x, 0, 1), y: clamp(hand[8].y, 0, 1) };
+  latestRawPoint = rawPoint;
+  const mappedPoint = {
+    x: clamp(0.5 + (rawPoint.x - 0.5) * trackingSettings.cursorGain + cursorOffset.x, 0, 1),
+    y: clamp(0.5 + (rawPoint.y - 0.5) * trackingSettings.cursorGain + cursorOffset.y, 0, 1),
+  };
+  const point = smoothedPoint
+    ? { x: smoothedPoint.x + (mappedPoint.x - smoothedPoint.x) * trackingSettings.response, y: smoothedPoint.y + (mappedPoint.y - smoothedPoint.y) * trackingSettings.response }
+    : mappedPoint;
+  smoothedPoint = point;
+  const palmScale = Math.max(0.08, Math.hypot(hand[0].x - hand[9].x, hand[0].y - hand[9].y));
+  const pinchDistance = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) / palmScale;
+  const wasPinching = pinchWasDown;
+  const pinchDown = pinchDistance < 0.29 * trackingSettings.pinchSensitivity;
+  const pinchUp = pinchDistance < 0.42 * trackingSettings.pinchSensitivity;
+  const rawPinching = wasPinching ? pinchUp : pinchDown;
+  if (rawPinching !== wasPinching) {
+    pinchStableFrames += 1;
+    if (pinchStableFrames >= 2) { pinchWasDown = rawPinching; pinchStableFrames = 0; }
+  } else pinchStableFrames = 0;
+  const pinching = pinchWasDown;
 
   if (mode === 'keyboard') {
     const hovered = keyAt(point);
     updateKeyHighlight(hovered);
-    if (pinching && !pinchWasDown && hovered) void pressAirKey(hovered);
-    pinchWasDown = pinching;
+    if (pinching && !wasPinching && hovered && now - lastTypedAt > 180) { lastTypedAt = now; void pressAirKey(hovered); }
     return;
   }
 
@@ -204,23 +326,24 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
     void sendToActivePage({ type: 'gesture:cursor', nx: point.x, ny: point.y });
   }
 
-  if (pinching && !pinchWasDown) {
+  if (pinching && !wasPinching) {
     pinchStart = point;
     previousPinch = point;
     dragDistance = 0;
     scrollRemainder = 0;
-  } else if (pinching && pinchWasDown && previousPinch && pinchStart) {
+  } else if (pinching && wasPinching && previousPinch && pinchStart) {
     const dy = point.y - previousPinch.y;
     scrollRemainder += dy;
     dragDistance += Math.abs(dy);
     if (dragDistance > 0.035 && Math.abs(scrollRemainder) > 0.008 && now - lastScroll > 80) {
       lastScroll = now;
-      void sendToActivePage({ type: 'gesture:scroll', nx: point.x, ny: point.y, delta: -scrollRemainder * 1.25 });
+      void sendToActivePage({ type: 'gesture:scroll', nx: point.x, ny: point.y, delta: -scrollRemainder * 1.25 * trackingSettings.scrollSpeed });
       scrollRemainder = 0;
     }
     previousPinch = point;
-  } else if (!pinching && pinchWasDown && pinchStart) {
-    if (dragDistance <= 0.035) {
+  } else if (!pinching && wasPinching && pinchStart) {
+    if (dragDistance <= 0.035 && now - lastClickAt > 350) {
+      lastClickAt = now;
       void sendToActivePage({ type: 'gesture:click', nx: point.x, ny: point.y }).then((result) => {
         if (result?.ok === false) setStatus(String(result.message || 'Pinch click was not accepted.'), true);
         else if (result?.ok) setStatus('Pinch click sent to the active page.');
@@ -231,12 +354,11 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
     dragDistance = 0;
     scrollRemainder = 0;
   }
-  pinchWasDown = pinching;
 }
 
 function frame(now: number): void {
   if (!running) return;
-  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && now - lastFrame > 75 && landmarker) {
+  if (!trackingPaused && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && now - lastFrame > 75 && landmarker) {
     lastFrame = now;
     try {
       const result = landmarker.detectForVideo(video, now);
@@ -247,6 +369,36 @@ function frame(now: number): void {
   }
   animationFrame = requestAnimationFrame(frame);
 }
+
+function setTrackingPaused(next: boolean): void {
+  if (!running) return;
+  trackingPaused = next;
+  pauseButton.textContent = next ? 'Resume' : 'Pause';
+  trackingBadge.textContent = next ? 'Tracking: paused' : handVisible ? 'Hand: tracking' : 'Hand: waiting';
+  centerCursorButton.disabled = next || !latestRawPoint;
+  if (next) {
+    pinchWasDown = false;
+    pinchStableFrames = 0;
+    pinchStart = null;
+    previousPinch = null;
+    dragDistance = 0;
+    scrollRemainder = 0;
+    cursor.style.display = 'none';
+    if (activeTabId !== null) void chrome.tabs.sendMessage(activeTabId, { type: 'gesture:off' }).catch(() => {});
+    setStatus('Hand tracking paused. Camera preview remains on; resume when ready.');
+  } else {
+    setStatus('Hand tracking resumed. Point to move, pinch and release to click.');
+  }
+}
+
+centerCursorButton.addEventListener('click', () => {
+  if (!latestRawPoint) return;
+  const centeredX = 0.5 + (latestRawPoint.x - 0.5) * trackingSettings.cursorGain;
+  const centeredY = 0.5 + (latestRawPoint.y - 0.5) * trackingSettings.cursorGain;
+  cursorOffset = { x: 0.5 - centeredX, y: 0.5 - centeredY };
+  smoothedPoint = null;
+  setStatus('Cursor centered on your current hand position.');
+});
 
 async function startCamera(): Promise<void> {
   if (cameraStarting || running || stream) {
@@ -262,8 +414,20 @@ async function startCamera(): Promise<void> {
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Chrome does not expose camera access here. Update Chrome and reopen the JARVIS extension side panel.');
     // Request permission synchronously from the Start button before awaiting tab lookup.
-    const cameraRequest = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-    const cameraStream = await cameraRequest;
+    const requestedDeviceId = cameraDevice.value;
+    const videoConstraints: MediaTrackConstraints = { width: { ideal: 640 }, height: { ideal: 480 }, ...(requestedDeviceId ? { deviceId: { exact: requestedDeviceId } } : {}) };
+    const cameraRequest = navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+    let cameraStream: MediaStream;
+    try {
+      cameraStream = await cameraRequest;
+    } catch (error) {
+      if (!requestedDeviceId || !(error instanceof DOMException) || !['OverconstrainedError', 'NotFoundError'].includes(error.name)) throw error;
+      cameraDevice.value = '';
+      trackingSettings.cameraDeviceId = '';
+      persistTrackingSettings();
+      setStatus('Saved camera was unavailable. Trying the default camera…');
+      cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    }
     if (requestId !== cameraStartId) {
       cameraStream.getTracks().forEach((track) => track.stop());
       cameraStarting = false;
@@ -273,6 +437,9 @@ async function startCamera(): Promise<void> {
     video.srcObject = stream;
     await video.play();
     preview.classList.add('active');
+    const activeDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId || '';
+    await refreshCameras(activeDeviceId);
+    await trackingSettingsReady;
     stage = 'page';
     if (activeTabId === null) await selectActiveTab();
     if (activeTabId === null) throw new Error('Camera is ready. Switch to a normal http/https website tab, then start hand control again.');
@@ -283,9 +450,9 @@ async function startCamera(): Promise<void> {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
       runningMode: 'VIDEO',
       numHands: 1,
-      minHandDetectionConfidence: 0.6,
-      minHandPresenceConfidence: 0.6,
-      minTrackingConfidence: 0.55,
+      minHandDetectionConfidence: trackingSettings.handConfidence,
+      minHandPresenceConfidence: Math.max(0.4, trackingSettings.handConfidence - 0.05),
+      minTrackingConfidence: Math.max(0.4, trackingSettings.handConfidence - 0.1),
     });
     if (requestId !== cameraStartId) {
       nextLandmarker.close();
@@ -294,8 +461,12 @@ async function startCamera(): Promise<void> {
     }
     landmarker = nextLandmarker;
     running = true;
+    trackingPaused = false;
     cameraStarting = false;
     stopButton.disabled = false;
+    pauseButton.disabled = false;
+    pauseButton.textContent = 'Pause';
+    cameraDevice.disabled = true;
     keysElement.hidden = mode !== 'keyboard';
     setStatus(mode === 'browse' ? 'Camera is on. Point to move; pinch and release to click, pinch and drag to scroll.' : 'Camera is on. Focus a page text field, then point at an air key and pinch.');
     animationFrame = requestAnimationFrame(frame);
@@ -314,6 +485,8 @@ async function startCamera(): Promise<void> {
       setStatus('No camera was found. Connect or enable a webcam, then retry.', true);
     } else if (name === 'NotReadableError' || name === 'TrackStartError') {
       setStatus('The camera is busy or blocked by another app. Close Camera, Teams, or Meet, then retry.', true);
+    } else if (name === 'OverconstrainedError') {
+      setStatus('The selected camera is no longer available. Choose Default camera and retry.', true);
     } else if (stage === 'model') {
       const detail = error instanceof Error ? error.message : String(error);
       if (/content security policy|wasm-(?:unsafe-)?eval|script-src/i.test(detail)) {
@@ -321,7 +494,7 @@ async function startCamera(): Promise<void> {
           ? extensionManifest.content_security_policy
           : extensionManifest.content_security_policy?.extension_pages ?? '';
         if (!/'wasm-unsafe-eval'/.test(policy)) {
-          setStatus(`JARVIS extension v${extensionVersion} is missing WebAssembly permission. Reload or replace it with v3.1.2 at chrome://extensions, then reopen Virtual Reality controls.`, true);
+          setStatus(`JARVIS extension v${extensionVersion} is missing WebAssembly permission. Reload or replace it with v3.2.0 at chrome://extensions, then reopen Virtual Reality controls.`, true);
         } else {
           setStatus(`JARVIS v${extensionVersion} includes WebAssembly permission, but Chrome blocked it in this session. Reload JARVIS at chrome://extensions, close this panel, and reopen it.`, true);
         }
@@ -351,10 +524,23 @@ async function stopCamera(showMessage = true): Promise<void> {
   cursor.style.display = 'none';
   if (activeTabId !== null) void chrome.tabs.sendMessage(activeTabId, { type: 'gesture:off' }).catch(() => {});
   pinchWasDown = false;
+  pinchStableFrames = 0;
   pinchStart = null;
   previousPinch = null;
+  dragDistance = 0;
+  scrollRemainder = 0;
+  smoothedPoint = null;
+  latestRawPoint = null;
+  cursorOffset = { x: 0, y: 0 };
+  handVisible = false;
+  trackingPaused = false;
+  trackingBadge.textContent = 'Hand: waiting';
+  centerCursorButton.disabled = true;
   startButton.disabled = false;
   stopButton.disabled = true;
+  pauseButton.disabled = true;
+  pauseButton.textContent = 'Pause';
+  void refreshCameras(trackingSettings.cameraDeviceId);
   if (showMessage) setStatus('Camera is off. Hand tracking has stopped.');
 }
 
@@ -362,15 +548,16 @@ $('browseMode').addEventListener('click', () => setMode('browse'));
 $('typeMode').addEventListener('click', () => setMode('keyboard'));
 startButton.addEventListener('click', () => { void startCamera(); });
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if ((message?.type !== 'vr:start' && message?.type !== 'vr:stop') || typeof sender.tab?.windowId !== 'number') return;
+  if (!['vr:start', 'vr:stop', 'vr:pause', 'vr:resume'].includes(message?.type) || typeof sender.tab?.windowId !== 'number') return;
   void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
     if (tab?.windowId !== sender.tab?.windowId) return;
     if (message.type === 'vr:start') {
       setMode('browse');
-      void startCamera();
-    } else {
+      if (running) setTrackingPaused(false);
+      else void startCamera();
+    } else if (message.type === 'vr:stop') {
       void stopCamera();
-    }
+    } else setTrackingPaused(message.type === 'vr:pause');
   });
 });
 permissionHelpButton.addEventListener('click', () => {
@@ -393,6 +580,7 @@ async function openCameraPermissionSetup(): Promise<void> {
   }
 }
 stopButton.addEventListener('click', () => { void stopCamera(); });
+pauseButton.addEventListener('click', () => setTrackingPaused(!trackingPaused));
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) void stopCamera(); });
 window.addEventListener('beforeunload', () => { void stopCamera(false); });
 void selectActiveTab();

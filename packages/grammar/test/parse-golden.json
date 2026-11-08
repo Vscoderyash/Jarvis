@@ -36,6 +36,8 @@
   { "text": "help", "expected": { "t": "info", "op": "help" } },
   { "text": "virtual reality", "expected": { "t": "vr", "op": "start" } },
   { "text": "start virtual reality", "expected": { "t": "vr", "op": "start" } },
+  { "text": "pause virtual reality", "expected": { "t": "vr", "op": "pause" } },
+  { "text": "resume virtual reality", "expected": { "t": "vr", "op": "resume" } },
   { "text": "stop virtual reality", "expected": { "t": "vr", "op": "stop" } },
   { "text": "summarize this page", "expected": { "t": "agent", "goal": "Summarize this page in three short sentences, then use done with the summary in say." } },
   { "text": "remember that I like jazz", "expected": { "t": "fact", "text": "I like jazz" } },
