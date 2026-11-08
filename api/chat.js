@@ -1,8 +1,11 @@
 // POST /api/chat { messages:[{role,content}] } -> streamed plain text
 const { readAttachments } = require('./attachments');
 const { timingSafeEqual } = require('node:crypto');
-const PREFERRED = ['meta/llama-3.3-70b-instruct','meta/llama-3.1-70b-instruct','nvidia/llama-3.3-nemotron-super-49b-v1.5','mistralai/mistral-large-2-instruct','qwen/qwen2.5-coder-32b-instruct','meta/llama-3.1-8b-instruct'];
-const VISION_PREFERRED = ['meta/llama-3.2-90b-vision-instruct','meta/llama-3.2-11b-vision-instruct'];
+const FAST_PREFERRED = ['nvidia/nemotron-3.5-bolt-e4b','nvidia/nemotron-3.5-lightning-30b-a3b'];
+const PREFERRED = [...FAST_PREFERRED,'nvidia/nemotron-3-nano-30b-a3b','nvidia/nemotron-3-super-120b-a12b','qwen/qwen3-next-80b-a3b-instruct','meta/llama-3.2-3b-instruct'];
+const VISION_PREFERRED = ['nvidia/nemotron-3.5-super-vl-120b-a12b','nvidia/llama-3.1-nemotron-nano-vl-8b-v1','meta/llama-3.2-11b-vision-instruct'];
+const RETIRED_MODELS = new Set(['meta/llama-3.1-8b-instruct','meta/llama-3.1-70b-instruct','meta/llama-3.3-70b-instruct','nvidia/llama-3.3-nemotron-super-49b-v1.5','mistralai/mistral-large-2-instruct','qwen/qwen2.5-coder-32b-instruct','01-ai/yi-large']);
+const UNUSABLE_MODEL = /(embed|rerank|reward|guard|safety|parse|pii|translate|asr|tts|image|video|pose|detection|classifier)/i;
 const BASE = (process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 const ANTHROPIC_BASE = 'https://api.anthropic.com';
@@ -25,7 +28,7 @@ function hasValidAccess(req) {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 function anthropicMessages(messages) {
-  return messages.map(message => ({ role: message.role, content: typeof message.content === 'string' ? message.content : message.content.map(part => {
+  const mapped = messages.map(message => ({ role: message.role, content: typeof message.content === 'string' ? message.content : message.content.map(part => {
     if (part.type === 'text') return { type: 'text', text: part.text };
     if (part.type === 'image_url' && typeof part.image_url?.url === 'string') {
       const match = part.image_url.url.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+=*)$/);
@@ -33,23 +36,42 @@ function anthropicMessages(messages) {
     }
     return { type: 'text', text: '[Unsupported image content]' };
   }) }));
+  const normalized = [];
+  for (const message of mapped) {
+    const previous = normalized[normalized.length - 1];
+    if (!previous || previous.role !== message.role) { normalized.push(message); continue; }
+    const blocks = content => typeof content === 'string' ? [{ type: 'text', text: content }] : content;
+    previous.content = [...blocks(previous.content), { type: 'text', text: '\n\n' }, ...blocks(message.content)];
+  }
+  return normalized;
+}
+async function providerErrorDetail(response) {
+  try {
+    const payload = JSON.parse(await response.text());
+    const detail = payload.error?.message || payload.error || payload.message || '';
+    return String(detail).replace(/[\r\n\t]+/g, ' ').replace(/(?:sk-[A-Za-z0-9_-]{12,}|Bearer\s+[^\s,]+)/gi, '[redacted]').slice(0, 220);
+  } catch { return ''; }
 }
 async function liveModels(key) {
-  if (cache.ids && Date.now() - cache.at < 6e5) return cache.ids;
+  if (cache.ids?.size && Date.now() - cache.at < 6e5) return cache.ids;
   try {
-    const r = await fetch(BASE + '/models', { headers: { Authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(6000) });
+    const r = await fetch(BASE + '/models', { headers: { Authorization: 'Bearer ' + key }, signal: AbortSignal.timeout(3500) });
     if (r.ok) { const ids = new Set(((await r.json()).data || []).map(m => m.id)); if (ids.size) return (cache = { at: Date.now(), ids }).ids; }
   } catch {}
   return null;
 }
 function pick(live, agent, smart, vision = false) {
-  const want = vision
+  const preferred = vision
     ? VISION_PREFERRED
-    : [...new Set([...(agent && !smart ? ['meta/llama-3.1-8b-instruct', process.env.NVIDIA_MODEL, 'meta/llama-3.1-70b-instruct'] : [process.env.NVIDIA_MODEL]), ...PREFERRED].filter(Boolean))];
-  if (!live) return want.slice(0, vision ? 2 : 6);
-  const present = want.filter(m => live.has(m));
-  const generic = [...live].filter(id => !present.includes(id) && /(instruct|chat|it$)/i.test(id) && (vision ? /(vision|vl)/i.test(id) : /(llama|mistral|qwen|nemotron|gemma|phi|deepseek|granite)/i.test(id) && !/(embed|vision|vl|guard|reward|safety|rerank|parse|base|nv-)/i.test(id))).sort((a, b) => /llama-3/i.test(b) - /llama-3/i.test(a));
-  return [...present, ...generic, ...want.filter(m => !live.has(m))].slice(0, vision ? 4 : 8);
+    : [...new Set([...(agent && !smart ? FAST_PREFERRED : []), process.env.NVIDIA_MODEL, ...PREFERRED].filter(Boolean))];
+  const usable = id => typeof id === 'string' && !RETIRED_MODELS.has(id) && !UNUSABLE_MODEL.test(id) && (vision ? /(vision|\bvl\b)/i.test(id) : !/(vision|\bvl\b)/i.test(id));
+  if (!live) return preferred.filter(usable).slice(0, vision ? 3 : 6);
+  const present = preferred.filter(id => live.has(id) && usable(id));
+  const generic = [...live].filter(id => !present.includes(id) && usable(id)).sort((a, b) => {
+    const rank = id => /nemotron-3\.5-(bolt|lightning)/i.test(id) ? 0 : /(instruct|chat|reasoning|nemotron|llama|qwen|mistral)/i.test(id) ? 1 : 2;
+    return rank(a) - rank(b) || a.localeCompare(b);
+  });
+  return [...new Set([...present, ...generic])].slice(0, vision ? 4 : 8);
 }
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -69,7 +91,9 @@ module.exports = async (req, res) => {
   if (!settings.key) return res.status(503).json({ error: `${provider} is not configured on the server.` });
   if (provider !== 'nvidia' && !process.env.JARVIS_ACCESS_TOKEN) return res.status(503).json({ error: 'Set JARVIS_ACCESS_TOKEN on the server before enabling additional providers.' });
   if (process.env.JARVIS_ACCESS_TOKEN && !hasValidAccess(req)) return res.status(401).json({ error: 'Connect JARVIS provider access before using this model.' });
-  const requestedModel = typeof (body && body.model) === 'string' ? body.model.trim() : '';
+  let requestedModel = typeof (body && body.model) === 'string' ? body.model.trim() : '';
+  // A :batch model is only callable through OpenRouter's asynchronous batch endpoint.
+  if (provider === 'openrouter') requestedModel = requestedModel.replace(/:batch$/i, '');
   if (requestedModel && !/^[A-Za-z0-9_./:+-]{1,200}$/.test(requestedModel)) return res.status(400).json({ error: 'Invalid model selection.' });
   const requestedMode = body && body.mode;
   const planner = requestedMode === 'planner';
@@ -92,11 +116,15 @@ module.exports = async (req, res) => {
   else if (fileText) messages[userIndex].content += fileText;
   const errors = [], deadline = Date.now() + 26000;
   const smart = power === 'deep' || Boolean(body && body.smart), hasImages = imageParts.length > 0;
-  // Fast agent turns use the known fast model list immediately; model discovery can add seconds to the first action.
-  // Smart mode still refreshes the live model catalog and falls back through it.
-  const live = provider === 'nvidia' && !requestedModel && !planner && (hasImages || smart) ? await liveModels(settings.key) : cache.ids;
-  const needsNvidiaVision = provider === 'nvidia' && hasImages && requestedModel && !/(vision|\bvl\b)/i.test(requestedModel);
-  const models = needsNvidiaVision ? VISION_PREFERRED : requestedModel ? [requestedModel] : provider === 'nvidia' ? pick(live, agent || planner, planner ? false : smart, hasImages) : [];
+  // Resolve unpinned NVIDIA requests from the live catalog so retired model IDs are never retried.
+  const live = provider === 'nvidia' && (!requestedModel || hasImages) ? await liveModels(settings.key) : cache.ids;
+  const needsNvidiaVision = provider === 'nvidia' && hasImages && (!requestedModel || !/(vision|\bvl\b)/i.test(requestedModel));
+  const availableNvidiaModels = provider === 'nvidia' ? pick(live, agent || planner, planner ? false : smart, hasImages) : [];
+  const models = needsNvidiaVision
+    ? pick(live, false, true, true)
+    : requestedModel
+      ? [requestedModel, ...availableNvidiaModels.filter(model => model !== requestedModel)]
+      : availableNvidiaModels;
   if (!models.length) return res.status(400).json({ error: 'Choose an available model from the model menu.' });
   for (const model of models) {
     const left = deadline - Date.now(); if (left < 3000) { errors.push('ran out of time'); break; }
@@ -108,11 +136,11 @@ module.exports = async (req, res) => {
         ? { 'x-api-key': settings.key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }
         : { Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json', ...(provider === 'openrouter' ? { 'X-Title': 'JARVIS' } : {}) };
       const request = provider === 'anthropic'
-        ? { model, system, messages: anthropicMessages(messages), temperature: agent || planner ? 0.2 : 0.5, max_tokens: planner ? 1000 : agent ? 500 : maxTokens, stream: true }
+        ? { model, system, messages: anthropicMessages(messages), max_tokens: planner ? 1000 : agent ? 500 : maxTokens, stream: true }
         : { model, messages: [{ role: 'system', content: system }, ...messages], temperature: agent || planner ? 0.2 : power === 'deep' ? 0.35 : 0.5, max_tokens: planner ? 1000 : agent ? 500 : maxTokens, stream: true };
       const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(request), signal: ctl.signal });
       clearTimeout(t);
-      if (!r.ok) { errors.push(provider + '/' + model + ' returned ' + r.status); if (r.status === 401 || r.status === 403) { cache = { at: 0, ids: null }; break; } continue; }
+      if (!r.ok) { const detail = await providerErrorDetail(r); errors.push(provider + '/' + model + ' returned ' + r.status + (detail ? ': ' + detail : '')); if (provider === 'nvidia' && (r.status === 404 || r.status === 410) && cache.ids) { cache.ids.delete(model); if (!cache.ids.size) cache = { at: 0, ids: null }; } if (r.status === 401 || r.status === 403) { cache = { at: 0, ids: null }; break; } continue; }
       res.status(200); res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.setHeader('Cache-Control', 'no-cache, no-transform'); res.setHeader('X-Model', model); res.setHeader('X-Provider', provider);
       const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', wrote = false;
       try {

@@ -12,8 +12,8 @@
   </head>
   <body>
     <h1>Allow camera for JARVIS hand controls</h1>
-    <p>Chrome sometimes blocks camera permission prompts inside extension side panels. Press Enable camera here. The camera stream starts only for the permission check, stays on this device, and is stopped immediately after access is granted.</p>
-    <div class="actions"><button id="enable" class="primary" type="button">Enable camera</button><button id="close" class="secondary" type="button">Return to JARVIS</button></div>
+    <p>Chrome can dismiss camera permission prompts inside extension side panels. Enable the camera from this full-page JARVIS tab. The stream is used only to check permission, stays on this device, and stops immediately after access is granted.</p>
+    <div class="actions"><button id="enable" class="primary" type="button">Enable camera</button><button id="settings" class="secondary" type="button">Open Chrome camera settings</button><button id="close" class="secondary" type="button">Return to JARVIS</button></div>
     <div id="status" role="status" aria-live="polite">The camera is currently off.</div>
     <script type="module" src="./main.ts"></script>
   </body>

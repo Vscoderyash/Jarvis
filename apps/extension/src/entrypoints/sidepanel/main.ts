@@ -305,7 +305,8 @@ async function startCamera(): Promise<void> {
     const name = error instanceof DOMException ? error.name : '';
     if (name === 'NotAllowedError' || name === 'SecurityError') {
       permissionHelpButton.hidden = false;
-      setStatus('Chrome blocked camera access in the side panel. Use the full-page setup below. If permission was blocked earlier, allow JARVIS in chrome://settings/content/camera and check Windows camera privacy settings.', true);
+      setStatus('Chrome did not allow the camera prompt in the side panel. Opening JARVIS camera setup in a full tab…', true);
+      void openCameraPermissionSetup();
     } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
       setStatus('No camera was found. Connect or enable a webcam, then retry.', true);
     } else if (name === 'NotReadableError' || name === 'TrackStartError') {
@@ -358,8 +359,24 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   });
 });
 permissionHelpButton.addEventListener('click', () => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL('camera-permission.html') }).catch(() => setStatus('Could not open camera permission setup. Open the JARVIS extension in Chrome and retry.', true));
+  void openCameraPermissionSetup();
 });
+
+async function openCameraPermissionSetup(): Promise<void> {
+  const url = chrome.runtime.getURL('camera-permission.html');
+  try {
+    const [existing] = await chrome.tabs.query({ url });
+    if (typeof existing?.id === 'number') {
+      await chrome.tabs.update(existing.id, { active: true });
+      if (typeof existing.windowId === 'number') await chrome.windows.update(existing.windowId, { focused: true });
+      return;
+    }
+    await chrome.tabs.create({ url, active: true });
+  } catch {
+    permissionHelpButton.hidden = false;
+    setStatus('Could not open camera setup automatically. Use the camera setup button, then allow camera access for JARVIS.', true);
+  }
+}
 stopButton.addEventListener('click', () => { void stopCamera(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) void stopCamera(); });
 window.addEventListener('beforeunload', () => { void stopCamera(false); });

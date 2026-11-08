@@ -1,6 +1,7 @@
 const { timingSafeEqual } = require('node:crypto');
 
 const CACHE_MS = 5 * 60 * 1000;
+const RETIRED_NVIDIA_MODELS = new Set(['meta/llama-3.1-8b-instruct', 'meta/llama-3.1-70b-instruct', 'meta/llama-3.3-70b-instruct', 'nvidia/llama-3.3-nemotron-super-49b-v1.5', 'mistralai/mistral-large-2-instruct', 'qwen/qwen2.5-coder-32b-instruct', '01-ai/yi-large']);
 const cache = new Map();
 
 function hasValidAccess(req) {
@@ -29,6 +30,8 @@ async function getModels(id, key, authorized) {
   const payload = await response.json();
   let models = Array.isArray(payload.data) ? payload.data.filter(model => model && typeof model === 'object') : [];
   if (id === 'openrouter') models = models.filter(model => {
+    // OpenRouter's :batch catalog entries require the asynchronous /batches API, not this chat stream route.
+    if (/:batch$/i.test(model.id)) return false;
     const inputs = model.architecture?.input_modalities, outputs = model.architecture?.output_modalities;
     return (!Array.isArray(inputs) || inputs.includes('text')) && (!Array.isArray(outputs) || outputs.includes('text'));
   });
@@ -38,11 +41,11 @@ async function getModels(id, key, authorized) {
     supportsImages: id === 'nvidia' ? /(vision|vl)/i.test(model.id || '') : id === 'anthropic' ? Boolean(model.capabilities?.image_input?.supported) : Array.isArray(model.architecture?.input_modalities) && model.architecture.input_modalities.includes('image'),
   })).filter(model => model.id && model.id.length <= 200);
   if (id === 'nvidia') {
-    models = models.filter(model => !/(embed|rerank|reward|guard|safety|parse|nv-)/i.test(model.id));
+    models = models.filter(model => !RETIRED_NVIDIA_MODELS.has(model.id) && !/(embed|rerank|reward|guard|safety|parse|nv-)/i.test(model.id));
   }
   if (id === 'openrouter') models = models.slice(0, 300);
   if (id === 'anthropic') models = models.filter(model => /^claude-/i.test(model.id));
-  const preferred = id === 'nvidia' ? 'meta/llama-3.1-8b-instruct' : id === 'anthropic' ? 'haiku' : '';
+  const preferred = id === 'nvidia' ? 'nvidia/nemotron-3.5-bolt-e4b' : id === 'anthropic' ? 'haiku' : '';
   models.sort((a, b) => Number(b.id.toLowerCase().includes(preferred)) - Number(a.id.toLowerCase().includes(preferred)) || a.name.localeCompare(b.name));
   cache.set(id, { at: Date.now(), models });
   return models;

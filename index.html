@@ -202,7 +202,7 @@ function chooseProvider(){
  const models=current&&current.models||[];modelSelect.replaceChildren();
  for(const model of models){const option=document.createElement('option');option.value=model.id;option.textContent=(model.name||model.id)+(model.supportsImages?' · Vision':'');option.title=model.id;modelSelect.appendChild(option)}
  const saved=models.some(model=>model.id===selectedModel)?selectedModel:'';
- const preferred=models.find(model=>selectedProvider==='nvidia'&&/meta\/llama-3\.1-8b-instruct/i.test(model.id))||models.find(model=>selectedProvider==='anthropic'&&/haiku/i.test(model.id))||models[0];
+ const preferred=models.find(model=>selectedProvider==='nvidia'&&/nvidia\/nemotron-3\.5-bolt-e4b/i.test(model.id))||models.find(model=>selectedProvider==='anthropic'&&/haiku/i.test(model.id))||models[0];
  selectedModel=saved||(preferred&&preferred.id)||'';modelSelect.value=selectedModel;modelSelect.disabled=!models.length;
  saveComposerSettings();
  if(current&&current.locked)showModelNote('Provider access is locked. Set JARVIS_ACCESS_TOKEN on the server, then connect it here.');
