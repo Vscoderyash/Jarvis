@@ -1,15 +1,17 @@
-import { copyFile, readdir } from 'node:fs/promises';
+import { access, copyFile, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const output = resolve(root, 'apps/extension/.output');
-const archives = (await readdir(output)).filter((name) => name.endsWith('-chrome.zip'));
+const extensionPackage = JSON.parse(await readFile(resolve(root, 'apps/extension/package.json'), 'utf8'));
+const archive = `jarvisextension-${extensionPackage.version}-chrome.zip`;
+const archivePath = resolve(output, archive);
 
-if (archives.length !== 1) {
-  throw new Error(`Expected one WXT Chromium archive in ${output}, found ${archives.length}.`);
-}
+await access(archivePath).catch(() => {
+  throw new Error(`Expected the current WXT Chromium archive at ${archivePath}.`);
+});
 
 const destination = resolve(root, 'jarvis-extension.zip');
-await copyFile(resolve(output, archives[0]), destination);
+await copyFile(archivePath, destination);
 console.log(`Updated ${destination}`);

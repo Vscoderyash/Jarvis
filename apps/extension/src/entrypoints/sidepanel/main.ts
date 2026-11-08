@@ -18,6 +18,9 @@ const statusElement = $('status');
 const startButton = $('start') as HTMLButtonElement;
 const stopButton = $('stop') as HTMLButtonElement;
 const permissionHelpButton = $('permissionHelp') as HTMLButtonElement;
+const extensionManifest = chrome.runtime.getManifest();
+const extensionVersion = extensionManifest.version;
+$('buildVersion').textContent = `Hand control for the active tab · v${extensionVersion}`;
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const rows: Key[][] = [
   [...'QWERTYUIOP'].map((value) => ({ label: value, value: value.toLowerCase() })),
@@ -314,7 +317,14 @@ async function startCamera(): Promise<void> {
     } else if (stage === 'model') {
       const detail = error instanceof Error ? error.message : String(error);
       if (/content security policy|wasm-(?:unsafe-)?eval|script-src/i.test(detail)) {
-        setStatus('Chrome is running an older JARVIS extension build without WebAssembly permission. Reload the v3.1.1 extension from chrome://extensions, then reopen Virtual Reality controls.', true);
+        const policy = typeof extensionManifest.content_security_policy === 'string'
+          ? extensionManifest.content_security_policy
+          : extensionManifest.content_security_policy?.extension_pages ?? '';
+        if (!/'wasm-unsafe-eval'/.test(policy)) {
+          setStatus(`JARVIS extension v${extensionVersion} is missing WebAssembly permission. Reload or replace it with v3.1.2 at chrome://extensions, then reopen Virtual Reality controls.`, true);
+        } else {
+          setStatus(`JARVIS v${extensionVersion} includes WebAssembly permission, but Chrome blocked it in this session. Reload JARVIS at chrome://extensions, close this panel, and reopen it.`, true);
+        }
       } else {
         setStatus(`Camera opened, but the hand model could not load: ${detail}. Check your internet connection and retry.`, true);
       }
