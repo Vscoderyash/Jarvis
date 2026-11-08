@@ -26,6 +26,7 @@ from brain import Brain                            # noqa: E402
 from mouth import Mouth                            # noqa: E402
 from bridge import Bridge                          # noqa: E402
 from memory import Memory                          # noqa: E402
+from handcontrol import HandController              # noqa: E402
 
 DEFAULTS = {"api_url": "https://jarvisv02.vercel.app/api/chat", "address": "sir", "voice": "en-GB-RyanNeural", "speak": True, "speech_rate": "+0%", "system_speech_rate": 165, "whisper_model": "small",
             "language": "auto", "wake_word": "jarvis", "wake_required": True, "active_seconds": 12, "mic_device": None, "bridge_port": 8765, "ui_scale": 1.0, "max_steps": 12, "brain": "fast"}
@@ -58,6 +59,11 @@ class App:
         self.tools = Tools(say=self.say, bridge=self.bridge, confirm=self.confirm, log=self.log)
         self.memory = Memory()
         self.brain = Brain(self.cfg, self.tools, self.say, self.ask_user, self.log, memory=self.memory)
+        self.hand_control = HandController(
+            on_state=lambda active, text: self.state("vr" if active else "idle", text),
+            log=self.log,
+            camera_index=self.cfg.get("camera_index", 0),
+        )
         self.awaiting_lesson, self.hints = False, 0
         self.ears = None
         self.ui = None
@@ -78,6 +84,7 @@ class App:
         self.brain.cancelled = True; self.mouth.stop(); self.state("idle", "Stopped.")
     def quit(self):
         self.running = False
+        self.hand_control.stop()
         if self.ui: self.ui.close()
     def wait_quiet(self):
         while self.mouth.busy(): time.sleep(0.05)
@@ -111,6 +118,10 @@ class App:
 
     def run_tool(self, tool, args, original):
         if tool == "_stop": self.stop_task(); return
+        if tool == "_vr_start":
+            _started, message = self.hand_control.start(); self.say(message); return
+        if tool == "_vr_stop":
+            _stopped, message = self.hand_control.stop(); self.say(message); return
         if tool.startswith("_") and tool not in ("_exit",): self.learn(tool, args); return
         if tool == "_exit": self.say(f"Goodbye, {self.cfg['address']}."); self.wait_quiet(); self.quit(); return
         if tool in ("open_url", "search_web") and self.bridge.connected and tool == "open_url":
@@ -161,12 +172,14 @@ class App:
             self.state("listening", "Heard: " + text[:120])
             if self.cfg["wake_required"]:
                 m = self.wake.match(text)
+                parsed = parse(text)
+                direct_vr = bool(parsed and parsed.get("tool") in ("_vr_start", "_vr_stop"))
                 if m:
                     rest = text[m.end():].strip()
                     self.active_until = time.time() + self.cfg["active_seconds"]
                     if not rest: self.say(f"Yes, {self.cfg['address']}?"); continue
                     text = rest
-                elif time.time() > self.active_until: continue
+                elif time.time() > self.active_until and not direct_vr: continue
             self.handle(text)
             self.active_until = time.time() + self.cfg["active_seconds"]
 

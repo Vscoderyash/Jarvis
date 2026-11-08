@@ -7,6 +7,7 @@ COLORS = {
     "thinking": "#a8b9ff",
     "speaking": "#8bd2a7",
     "busy": "#d8c18a",
+    "vr": "#50d9ff",
 }
 
 

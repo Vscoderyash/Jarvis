@@ -26,10 +26,10 @@
   <body>
     <header>
       <svg viewBox="0 0 100 100" aria-hidden="true"><path fill="#3266ef" d="M24 25V18h7v-7h10V7h22v4h9v7h7v9h5v27h-8v8H68v7H37v-5h-8v-8h-7V29h5z"/><path fill="#75a5ff" d="M19 24V17h8v-5h9V8h19v4h9v5h8v7h5v19h-5v8h-7v6H35v-5h-8v-7h-6V29h-5v-5z"/><path fill="#101b38" d="M31 23h38v30H31z"/><path fill="#8efff3" d="M36 34h11v4h-4v4h-4v-4h-3zm18 0h11v4h-4v4h-4v-4h-3z"/><path fill="#101b38" stroke="#8bc8ff" stroke-width="2" d="M53 51h34v27H53z"/></svg>
-      <div><strong>Pip · Hand controls</strong><small>Gesture tools for the active tab</small></div>
+      <div><strong>Pip · Virtual Reality</strong><small>Hand control for the active tab</small></div>
     </header>
     <main>
-      <p class="privacy">Camera starts only when you press <b>Start camera</b>. Hand tracking runs on this device; JARVIS does not send camera frames to a server. First use downloads Google's hand model. MediaPipe may send usage metrics.</p>
+      <p class="privacy">Camera starts when you press <b>Start camera</b> or say <b>“virtual reality”</b> while this panel is open. Hand tracking runs on this device; JARVIS does not send camera frames to a server. First use downloads Google's hand model. MediaPipe may send usage metrics.</p>
       <div class="preview" id="preview">
         <video id="video" muted playsinline></video>
         <div id="cameraCursor" aria-hidden="true"></div>
@@ -42,7 +42,7 @@
       </div>
       <div class="actions"><button type="button" id="start" class="primary">Start camera</button><button type="button" id="stop" class="secondary" disabled>Stop</button></div>
       <button type="button" id="permissionHelp" class="permission-help" hidden>Open camera permission setup</button>
-      <div id="status" role="status" aria-live="polite">Camera is off. Choose a mode, then start it when you want gesture control.</div>
+      <div id="status" role="status" aria-live="polite">Camera is off. Say “virtual reality” to start, or choose a mode and press Start camera.</div>
       <ul class="help" id="browseHelp"><li>Point to move the page cursor.</li><li>Pinch and release to click; pinch and drag up or down to scroll.</li><li>Risky actions such as sending, buying, deleting, or submitting are blocked.</li></ul>
       <ul class="help" id="typeHelp" hidden><li>Focus a text field on the page before typing.</li><li>Point at a key and pinch to type. Shift and backspace are supported.</li><li>Air typing never presses Enter or submits a form.</li></ul>
       <p class="foot">Works on normal http/https pages. Camera video stays on this device and is stopped when you stop or close the panel.</p>

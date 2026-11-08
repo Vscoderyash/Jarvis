@@ -19,7 +19,7 @@ USE
    "set a timer for 10 minutes" / "remind me in 5 minutes to call mom" / "take a note buy milk"
    "what's the battery" / "what time is it" / "lock the screen" / "find file resume" / "open downloads folder"
    "click sign in" / "next tab" / "summarize this page"  (go to the browser extension when it is connected)
-   Anything else ("plan my week", "write an email about...", "find me a recipe and open it") goes to the thinking brain:
+   Ask for desktop tasks in your own words. Requests outside the instant shortcuts (for example, "plan my week", "write an email about...", "find me a recipe and open it") go to the thinking brain:
    it works out what you want, makes a plan, does one step at a time, checks each result and changes tactics if something fails.
  The Codex-inspired Pip card stays on top: blue = listening/thinking, green = speaking. Drag to move it, double-click to stop a task, right-click to quit.
  Safety: slam the mouse into a screen corner to abort any automation. Closing windows (Alt+F4) asks you to say "yes" first.
@@ -44,10 +44,12 @@ API ACCESS (401)
  Then close JARVIS Desktop and start it again. On macOS/Linux, export JARVIS_ACCESS_TOKEN='<same token as Vercel>' before starting JARVIS.
  The website route is /api/chat; a 401 means the route was reached but the local token is missing or does not match.
 
-CAMERA HAND CONTROLS
- Click the JARVIS extension icon, choose "Open camera hand controls", and press "Start camera". If Chrome blocks the side-panel permission prompt,
- choose "Open camera permission setup", press "Enable camera" in that tab, return to the side panel, and press Start camera again.
- Camera video stays on the device; the permission setup stops its temporary stream as soon as the permission is granted.
+VIRTUAL REALITY HAND CONTROL
+ Say "virtual reality" to start the desktop camera and move the mouse with your index fingertip. Pinch and release to click; keep pinching while moving to drag. Say "stop virtual reality" or press Q in the preview to stop. This phrase works without saying the wake word first. The live preview and hand tracking run locally; the first use downloads the hand model. Pressing a screen corner triggers PyAutoGUI's failsafe.
+ The installer adds MediaPipe and OpenCV from requirements-vr.txt. If their install reports an error, rerun install_windows.bat with Python 3.10-3.12, or activate the venv and run: pip install -r requirements-vr.txt. On macOS, grant camera and Accessibility permissions to Terminal/JARVIS. On Windows, allow camera access for desktop apps in Settings > Privacy & security > Camera.
+
+BROWSER VIRTUAL REALITY
+ Click the JARVIS icon and choose "Open Virtual Reality controls" once. Grant camera permission in the panel (use "Open camera permission setup" if needed). Keep the panel open, then say "virtual reality" to start hand control on the active page; say "stop virtual reality" to stop. Chrome requires a user interaction to open the side panel, so voice can start it once that panel is open. Camera frames stay on-device.
 
 SETTINGS  (jarvis_desktop/config.json)
  voice          en-GB-RyanNeural (British male, default)   en-US-GuyNeural   en-IN-PrabhatNeural   en-US-ChristopherNeural
@@ -57,7 +59,8 @@ SETTINGS  (jarvis_desktop/config.json)
  language       auto (default)   en   hi   or another Whisper language code
  wake_required  false = react to everything you say (only in a quiet room)
  ui_scale       0.5 to 2.5  makes the orb smaller or bigger        mic_device  a number if the wrong microphone is used
- api_url        your JARVIS website API (the same one the extension uses)
+ api_url        the built-in JARVIS website API
+ camera_index   camera number (0 is the default camera)
 
 PRIVACY
  Your voice is converted to text on your own computer (nothing is uploaded). The text of what you ask is sent to your JARVIS

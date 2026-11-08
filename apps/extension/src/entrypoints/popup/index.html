@@ -1,3 +1,40 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS</title><style>body{width:300px;font:14px system-ui;padding:14px;background:#14181c;color:#e7ece9}input{width:100%;padding:8px;margin:8px 0;background:#0e1215;border:1px solid #38414a;color:#fff;border-radius:6px}button{background:#ff5a1f;color:#fff;border:0;padding:8px 14px;border-radius:999px;cursor:pointer}small{color:#9aa6ae}</style></head><body><b style="font:700 16px monospace;letter-spacing:.2em;color:#19d3ff">J.A.R.V.I.S</b><br><small>Press Alt+J on any page, or click the orb.</small>
-<input id="u" placeholder="https://jarvisv02.vercel.app/api/chat"><input id="a" type="password" autocomplete="off" placeholder="JARVIS server access token (not provider keys)"><button id="s">Save</button> <button id="t">Test</button> <button id="w" style="background:#19d3ff;color:#001018">Wake JARVIS</button><br><small>Voice input language (helps recognition accuracy)</small><select id="l" style="width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:6px"><option value="">Auto</option><option value="en-IN">English (India) + Hinglish</option><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="hi-IN">Hindi</option><option value="es-ES">Spanish</option><option value="fr-FR">French</option><option value="de-DE">German</option><option value="ar-SA">Arabic</option><option value="bn-IN">Bengali</option><option value="ta-IN">Tamil</option><option value="te-IN">Telugu</option><option value="ur-PK">Urdu</option></select><small>Reply / translation language</small><select id="rl" style="width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:6px"><option value="">Auto (match your message)</option><option value="en-US">English</option><option value="hi-IN">Hindi</option><option value="es-ES">Spanish</option><option value="fr-FR">French</option><option value="de-DE">German</option><option value="ar-SA">Arabic</option><option value="bn-IN">Bengali</option><option value="ta-IN">Tamil</option><option value="te-IN">Telugu</option><option value="ur-PK">Urdu</option><option value="ja-JP">Japanese</option><option value="zh-CN">Chinese</option></select><br><small>Voice (choose a voice matching your reply language for clearer speech)</small><select id="v" style="width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:6px"></select><small>Size</small><select id="z" style="width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:6px"><option value="auto">Auto (fits the screen)</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select><small>Brain</small><select id="br" style="width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:6px"><option value="fast">Fast (quick replies)</option><option value="smart">Smart (stronger reasoning, slower)</option></select><small id="tr"></small><br><button id="ex" style="margin:6px 4px 0 0">Export training</button><button id="im" style="margin:6px 4px 0 0">Import</button><button id="rs" style="margin-top:6px;background:#38414a">Reset</button><input type="file" id="fi" accept=".json" style="display:none"><br><small id="c"></small><br><small id="m"></small>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>JARVIS</title>
+  <style>
+    :root{color-scheme:dark;font:14px/1.45 system-ui,sans-serif;background:#14181c;color:#e7ece9}
+    *{box-sizing:border-box}body{width:320px;margin:0;padding:16px;background:#14181c;color:#e7ece9}
+    h1{margin:0;color:#19d3ff;font:700 16px monospace;letter-spacing:.2em}
+    .sub,.hint,small{color:#9aa6ae}.sub{margin:2px 0 12px}.service{padding:9px 10px;border:1px solid #2e3941;border-radius:9px;background:#101417;color:#b9c8ce;font-size:12px}
+    input,select{width:100%;padding:8px;margin:6px 0;background:#0e1215;color:#fff;border:1px solid #38414a;border-radius:7px}
+    button{background:#ff5a1f;color:#fff;border:0;padding:8px 14px;border-radius:999px;cursor:pointer;font-weight:600}
+    .cyan{background:#19d3ff;color:#001018}.row{display:flex;gap:7px;margin:8px 0}.row button{flex:1}
+    .label{display:block;margin-top:9px;font-size:12px;color:#c2cbd0}#tr{display:block;margin-top:6px}#m{display:block;min-height:18px;margin-top:10px;overflow-wrap:anywhere}
+  </style>
+</head>
+<body>
+  <h1>J.A.R.V.I.S</h1>
+  <p class="sub">Press Alt+J on a page, or click Pip.</p>
+  <p class="service">Connected to the JARVIS service for this extension.</p>
+  <input id="a" type="password" autocomplete="off" placeholder="JARVIS server access token (optional)">
+  <div class="row"><button id="s">Save token</button><button id="t">Test connection</button></div>
+  <button id="w" class="cyan">Wake JARVIS</button>
+  <button id="handControls" style="display:block;margin:10px 0;background:#34363a;color:#ededed">Open Virtual Reality controls</button>
+  <label class="label" for="l">Voice input language</label>
+  <select id="l"><option value="">Auto</option><option value="en-IN">English (India) + Hinglish</option><option value="en-US">English (US)</option><option value="en-GB">English (UK)</option><option value="hi-IN">Hindi</option><option value="es-ES">Spanish</option><option value="fr-FR">French</option><option value="de-DE">German</option><option value="ar-SA">Arabic</option><option value="bn-IN">Bengali</option><option value="ta-IN">Tamil</option><option value="te-IN">Telugu</option><option value="ur-PK">Urdu</option></select>
+  <label class="label" for="rl">Reply / translation language</label>
+  <select id="rl"><option value="">Auto (match your message)</option><option value="en-US">English</option><option value="hi-IN">Hindi</option><option value="es-ES">Spanish</option><option value="fr-FR">French</option><option value="de-DE">German</option><option value="ar-SA">Arabic</option><option value="bn-IN">Bengali</option><option value="ta-IN">Tamil</option><option value="te-IN">Telugu</option><option value="ur-PK">Urdu</option><option value="ja-JP">Japanese</option><option value="zh-CN">Chinese</option></select>
+  <label class="label" for="v">Voice</label><select id="v"></select>
+  <label class="label" for="z">Pip size</label><select id="z"><option value="auto">Auto (fits the screen)</option><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select>
+  <label class="label" for="br">Response mode</label><select id="br"><option value="fast">Fast</option><option value="smart">Smart (stronger reasoning)</option></select>
+  <small id="tr"></small>
+  <div class="row"><button id="ex">Export training</button><button id="im">Import</button><button id="rs" style="background:#38414a">Reset</button></div>
+  <input type="file" id="fi" accept=".json" style="display:none">
+  <small id="c"></small><small id="m" role="status" aria-live="polite"></small>
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
 <script type="module" src="./main.ts"></script></body></html>

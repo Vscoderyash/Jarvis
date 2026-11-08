@@ -6,7 +6,6 @@ const byId = <T extends HTMLElement>(id: string): T => {
   return element as T;
 };
 
-const apiInput = byId<HTMLInputElement>('u');
 const accessInput = byId<HTMLInputElement>('a');
 const message = byId<HTMLElement>('m');
 const language = byId<HTMLSelectElement>('l');
@@ -16,16 +15,12 @@ const size = byId<HTMLSelectElement>('z');
 const brain = byId<HTMLSelectElement>('br');
 const trainingFile = byId<HTMLInputElement>('fi');
 let activeWindowId: number | null = null;
-const handControls = document.createElement('button');
-handControls.type = 'button';
-handControls.textContent = 'Open camera hand controls';
-handControls.style.cssText = 'display:block;margin:10px 0;background:#34363a;color:#ededed';
+const handControls = byId<HTMLButtonElement>('handControls');
 handControls.disabled = true;
-byId<HTMLButtonElement>('w').after(handControls);
 void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => { activeWindowId = typeof tab?.windowId === 'number' ? tab.windowId : null; handControls.disabled = activeWindowId === null; });
 handControls.onclick = () => {
   if (activeWindowId === null || !chrome.sidePanel) { message.textContent = 'Camera controls need Chrome 116 or newer.'; return; }
-  void chrome.sidePanel.open({ windowId: activeWindowId }).then(() => window.close()).catch(() => { message.textContent = 'Could not open the side panel. Try again from a normal browser tab.'; });
+  void chrome.sidePanel.open({ windowId: activeWindowId }).then(() => window.close()).catch(() => { message.textContent = 'Could not open the Virtual Reality side panel. Try from a normal website tab.'; });
 };
 const trainingKeys = ['skills', 'facts', 'aliases', 'exp', 'lessons'];
 const getStored = async (keys: string | string[]): Promise<Record<string, unknown>> =>
@@ -33,14 +28,13 @@ const getStored = async (keys: string | string[]): Promise<Record<string, unknow
 const countKeys = (value: unknown): number => value !== null && typeof value === 'object' ? Object.keys(value).length : 0;
 const countItems = (value: unknown): number => Array.isArray(value) ? value.length : 0;
 
-void getStored(['apiUrl', 'accessToken']).then((value) => { apiInput.value = typeof value.apiUrl === 'string' ? value.apiUrl : ''; accessInput.value = typeof value.accessToken === 'string' ? value.accessToken : ''; });
-byId<HTMLButtonElement>('s').onclick = () => chrome.storage.local.set({ apiUrl: apiInput.value.trim(), accessToken: accessInput.value.trim() }).then(() => { message.textContent = 'Saved. Provider API keys stay on the server.'; });
+void getStored('accessToken').then((value) => { accessInput.value = typeof value.accessToken === 'string' ? value.accessToken : ''; });
+byId<HTMLButtonElement>('s').onclick = () => chrome.storage.local.set({ accessToken: accessInput.value.trim() }).then(() => { message.textContent = 'Saved. Provider API keys stay on the server.'; });
 
 byId<HTMLButtonElement>('t').onclick = async () => {
   message.textContent = 'Testing...';
-  const url = apiInput.value.trim() || 'https://jarvisv02.vercel.app/api/chat';
   try {
-    const response = await fetch(url, {
+    const response = await fetch('https://jarvisv02.vercel.app/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(accessInput.value.trim() ? { Authorization: `Bearer ${accessInput.value.trim()}` } : {}) },
       body: JSON.stringify({ mode: 'agent', messages: [{ role: 'user', content: JSON.stringify({ goal: 'say hello', url: 'about:blank', elements: [], history: [] }) }] }),

@@ -8,7 +8,7 @@ import numpy as np
 
 SR, FRAME_SECONDS = 16000, 0.03
 JUNK = {"", ".", "the", "a", "huh", "you", "thank you", "thanks", "thanks for watching", "bye", "the end", "uh", "um", "hmm"}
-PROMPT = "Jarvis. Open Chrome, open Notepad, click, scroll down, type, volume up, next tab, YouTube, Spotify, screenshot, remind me, set a timer."
+PROMPT = "Jarvis. Virtual reality. Stop virtual reality. Open Chrome, open Notepad, click, scroll down, type, volume up, next tab, YouTube, Spotify, screenshot, remind me, set a timer."
 
 
 class Ears:

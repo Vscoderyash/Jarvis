@@ -48,6 +48,8 @@ def parse(text: str):
     s = norm(text)
     low = s.lower()
     m = None
+    if re.fullmatch(r"(?:virtual reality|vr(?: mode)?|(?:start|enable|activate|turn on) (?:virtual reality|vr)(?: mode)?)", low): return {"tool": "_vr_start", "args": {}}
+    if re.fullmatch(r"(?:stop|disable|turn off|close) (?:virtual reality|vr)(?: mode)?", low): return {"tool": "_vr_stop", "args": {}}
     if re.fullmatch(r"(stop|cancel|quiet|be quiet|shut up|never mind|enough|abort)", low): return {"tool": "_stop", "args": {}}
     if re.fullmatch(r"(exit|quit|goodbye|good night|go to sleep|shut down jarvis|close jarvis)", low): return {"tool": "_exit", "args": {}}
     if (m := re.match(r"(?:(?:remember|teach|learn)\s+)?(?:jarvis\s+)?(?:that\s+)?when i say\s+[\"“']?(.+?)[\"”']?[,:]?\s+(?:then\s+|you\s+)?(?:please\s+)?((?:open|go|click|search|play|scroll|type|run|do|set|take|press|volume|mute|lock|launch|start|close|pause|next|find|remind|what)\b.+)$", s, re.I)): return {"tool": "_teach", "args": {"phrase": m[1], "action": m[2]}}

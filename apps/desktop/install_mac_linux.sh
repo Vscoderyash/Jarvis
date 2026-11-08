@@ -12,4 +12,5 @@ pip install --upgrade pip
 export FROZENLIST_NO_EXTENSIONS=1 MULTIDICT_NO_EXTENSIONS=1 YARL_NO_EXTENSIONS=1 AIOHTTP_NO_EXTENSIONS=1
 pip install -r requirements.txt
 pip install -r requirements-voice.txt || echo "Natural voice package not installed; the system voice will be used."
+pip install -r requirements-vr.txt || echo "Virtual Reality packages not installed; check README.txt for your Python/platform support."
 echo "Installed. Run:  source venv/bin/activate && python jarvis_desktop/main.py"

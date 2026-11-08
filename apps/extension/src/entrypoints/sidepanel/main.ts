@@ -28,6 +28,8 @@ const rows: Key[][] = [
 
 let mode: GestureMode = 'browse';
 let stream: MediaStream | null = null;
+let cameraStarting = false;
+let cameraStartId = 0;
 let landmarker: HandLandmarker | null = null;
 let animationFrame = 0;
 let running = false;
@@ -244,6 +246,12 @@ function frame(now: number): void {
 }
 
 async function startCamera(): Promise<void> {
+  if (cameraStarting || running || stream) {
+    setStatus('Virtual Reality camera is already on or starting.');
+    return;
+  }
+  cameraStarting = true;
+  const requestId = ++cameraStartId;
   startButton.disabled = true;
   permissionHelpButton.hidden = true;
   setStatus('Requesting camera permission…');
@@ -252,7 +260,13 @@ async function startCamera(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Chrome does not expose camera access here. Update Chrome and reopen the JARVIS extension side panel.');
     // Request permission synchronously from the Start button before awaiting tab lookup.
     const cameraRequest = navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-    stream = await cameraRequest;
+    const cameraStream = await cameraRequest;
+    if (requestId !== cameraStartId) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStarting = false;
+      return;
+    }
+    stream = cameraStream;
     video.srcObject = stream;
     await video.play();
     preview.classList.add('active');
@@ -262,7 +276,7 @@ async function startCamera(): Promise<void> {
     stage = 'model';
     setStatus('Loading the on-device hand tracking model. First use downloads the model from Google…');
     const vision = await FilesetResolver.forVisionTasks(chrome.runtime.getURL('mediapipe/wasm/'));
-    landmarker = await HandLandmarker.createFromOptions(vision, {
+    const nextLandmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
       runningMode: 'VIDEO',
       numHands: 1,
@@ -270,12 +284,23 @@ async function startCamera(): Promise<void> {
       minHandPresenceConfidence: 0.6,
       minTrackingConfidence: 0.55,
     });
+    if (requestId !== cameraStartId) {
+      nextLandmarker.close();
+      cameraStarting = false;
+      return;
+    }
+    landmarker = nextLandmarker;
     running = true;
+    cameraStarting = false;
     stopButton.disabled = false;
     keysElement.hidden = mode !== 'keyboard';
     setStatus(mode === 'browse' ? 'Camera is on. Point to move; pinch and release to click, pinch and drag to scroll.' : 'Camera is on. Focus a page text field, then point at an air key and pinch.');
     animationFrame = requestAnimationFrame(frame);
   } catch (error) {
+    if (requestId !== cameraStartId) {
+      cameraStarting = false;
+      return;
+    }
     await stopCamera(false);
     const name = error instanceof DOMException ? error.name : '';
     if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -290,11 +315,14 @@ async function startCamera(): Promise<void> {
     } else {
       setStatus(error instanceof Error ? error.message : 'Could not start hand controls.', true);
     }
+    cameraStarting = false;
     startButton.disabled = false;
   }
 }
 
 async function stopCamera(showMessage = true): Promise<void> {
+  cameraStartId += 1;
+  cameraStarting = false;
   running = false;
   cancelAnimationFrame(animationFrame);
   landmarker?.close();
@@ -317,6 +345,18 @@ async function stopCamera(showMessage = true): Promise<void> {
 $('browseMode').addEventListener('click', () => setMode('browse'));
 $('typeMode').addEventListener('click', () => setMode('keyboard'));
 startButton.addEventListener('click', () => { void startCamera(); });
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if ((message?.type !== 'vr:start' && message?.type !== 'vr:stop') || typeof sender.tab?.windowId !== 'number') return;
+  void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => {
+    if (tab?.windowId !== sender.tab?.windowId) return;
+    if (message.type === 'vr:start') {
+      setMode('browse');
+      void startCamera();
+    } else {
+      void stopCamera();
+    }
+  });
+});
 permissionHelpButton.addEventListener('click', () => {
   void chrome.tabs.create({ url: chrome.runtime.getURL('camera-permission.html') }).catch(() => setStatus('Could not open camera permission setup. Open the JARVIS extension in Chrome and retry.', true));
 });

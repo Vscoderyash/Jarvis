@@ -218,7 +218,7 @@ export default defineContentScript({
         const res = await bg({ type: 'ask', messages: [{ role: 'user', content: JSON.stringify(payload) }] });
         if (!res || res.error) { if (job.status !== 'running') break; say('e', (res && res.error) || 'No response from JARVIS server.'); await finish(); break; }
         const a = res.reply || parse(res.text); job.steps++;
-        if (!a) { job.history.push('unreadable reply'); job.bad = (job.bad || 0) + 1; await save(); if (job.bad >= 2) { say('e', 'JARVIS could not get a usable reply. Open the toolbar popup, check the API address, and press Test. If it still fails, push the latest website files so Vercel redeploys.'); await finish(); break; } await sleep(600); continue; }
+        if (!a) { job.history.push('unreadable reply'); job.bad = (job.bad || 0) + 1; await save(); if (job.bad >= 2) { say('e', 'JARVIS could not get a usable reply. Open the toolbar popup and test the built-in JARVIS service connection.'); await finish(); break; } await sleep(600); continue; }
         job.hint = '';
         if (a.thought) say('s', '💭 ' + a.thought);
         if (a.say) say('a', a.say);
@@ -342,6 +342,12 @@ export default defineContentScript({
   async function go(u) { say('a', 'Opening ' + u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)); await jump(u); }
   async function local(text) {
     const c = parseCmd(text); if (!c) return false;
+    if (c.t === 'vr') {
+      const result = await bg<{ ok?: boolean; message?: string }>({ type: `vr:${c.op}` });
+      if (!result?.ok) say('e', result?.message || 'Open the JARVIS Virtual Reality side panel, allow camera access, and try again.');
+      else say('a', c.op === 'start' ? 'Starting Virtual Reality. Move your index finger to point; pinch and release to click.' : 'Virtual Reality stopped.');
+      return true;
+    }
     if (c.t === 'wake') { activate(false); return true; }
     if (c.t === 'teach') { const k = keyOf(c.phrase); if (!k) return true; skills[k] = norm(c.action); await put('skills', skills); say('a', `Learned. When you say "${c.phrase}", I will ${c.action}.`); return true; }
     if (c.t === 'alias') { aliases[c.from.toLowerCase()] = c.to; await put('aliases', aliases); say('a', `Got it. When I hear "${c.from}", I will read it as "${c.to}".`); return true; }
@@ -403,7 +409,7 @@ export default defineContentScript({
     if (c.t === 'info') {
       const n = new Date();
       if (c.op === 'time') say('a', 'It is ' + n.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + '.'); else if (c.op === 'date') say('a', n.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '.');
-      else say('s', 'Teach me: "when I say good morning, open gmail then youtube", "remember that I like jazz", "when you hear gmale I mean gmail", "forget good morning", "what have you learned". Say "good job" or "that was wrong" after a task and I learn from it. I can: open sites, search, click, type, scroll, go back/forward/reload, control tabs (next, previous, switch to X, new, duplicate, pin, mute, close, reopen), control video (pause, play, mute, volume, skip, speed, fullscreen, next video), zoom, dark mode, read aloud, find text, copy link, summarize, calculate, tell time. Say several in one breath.');
+      else say('s', 'You can ask for browser tasks in your own words; this is not a fixed command list. I can navigate, search, find and click page controls, type, scroll, switch tabs, control media, read or summarize pages, and complete multi-step tasks. Say several steps in one breath. Say “virtual reality” for camera hand control. Teach shortcuts with “when I say good morning, open Gmail then YouTube”, remember useful facts, correct words I mishear, and tell me “good job” or “that was wrong” after a task.');
       return true;
     }
     if (c.t === 'math') { let r; try { r = Function('"use strict";return (' + c.e + ')')(); } catch { r = NaN; } say(isFinite(r) ? 'a' : 'e', isFinite(r) ? c.e.replace(/\s+/g, '') + ' = ' + +r.toFixed(6) : 'I could not work that out.'); return true; }
@@ -537,7 +543,7 @@ export default defineContentScript({
     tabId = await bg<number>({ type: 'tabId' }); job = tabId != null ? await store.get<any>('job' + tabId) : null;
     if (job && job.status === 'running') { toggle(true); say('s', 'Continuing: ' + job.goal); await sleep(1200); loop(); }
     else if (((await store.get<string[]>('q' + tabId)) || []).length) { toggle(true); await sleep(brain === 'smart' ? 1500 : 250); drain(); }
-    else say('s', 'JARVIS online. Try: "open youtube and search for lo-fi", "click Sign in", "scroll down", "next tab". Press 🎤 to talk.');
+    else say('s', 'JARVIS online. Tell me what you want to do in your own words. Press 🎤 to talk, or say “virtual reality” for camera hand control.');
   })();
 })();
 

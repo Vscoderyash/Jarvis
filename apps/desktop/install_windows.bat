@@ -79,6 +79,9 @@ pip install -r requirements.txt
 if errorlevel 1 goto fail
 pip install -r requirements-voice.txt
 if errorlevel 1 echo NOTE: the natural-voice package could not be installed, JARVIS will use the Windows voice instead.
+echo Installing optional Virtual Reality camera hand-control packages...
+pip install -r requirements-vr.txt
+if errorlevel 1 echo NOTE: camera gestures could not be installed for this Python/platform. See README.txt for supported setup.
 echo ok> "venv\.jarvis_installed"
 if defined VOICE_FALLBACK echo Vosk selected for this Python version> "venv\.jarvis_vosk_fallback"
 echo.

@@ -12,6 +12,7 @@ export type ParsedCommand =
   | { t: 'page' | 'info'; op: string }
   | { t: 'math'; e: string }
   | { t: 'agent'; goal: string }
+  | { t: 'vr'; op: 'start' | 'stop' }
   | { t: 'nth'; n: number; kind: string }
   | { t: 'type'; text: string; q?: string; submit: boolean }
   | { t: 'reference'; op: 'click' | 'open' | 'newtab' };
@@ -60,6 +61,8 @@ export function parseCmd(text: string): ParsedCommand | null {
   if (/^(?:good job|well done|great job|that(?:'?s| is| was)? (?:right|correct|perfect|good)|nice work|perfect)$/i.test(s)) return { t: 'good' };
   if (/^(?:that(?:'?s| is| was)? (?:wrong|not right|incorrect|bad)|wrong|bad job|no,? (?:not that|that'?s wrong)|you (?:got it|did it) wrong)$/i.test(s)) return { t: 'bad' };
   if (/^(stop|cancel|abort|never mind)$/i.test(s)) return { t: 'stop' };
+  if (/^(?:virtual reality|vr(?:\s+mode)?|(?:start|enable|activate|turn on)\s+(?:virtual reality|vr)(?:\s+mode)?)$/i.test(s)) return { t: 'vr', op: 'start' };
+  if (/^(?:stop|disable|turn off|close)\s+(?:virtual reality|vr)(?:\s+mode)?$/i.test(s)) return { t: 'vr', op: 'stop' };
   if ((m = s.match(/^(click|tap|open|follow|go(?:\s+to)?)(?:\s+on)?\s+(?:that|this|there|it|the one|the link)(?:\s+(?:link|button|one))?(\s+in\s+(?:a\s+)?new\s+tab)?$/i))) {
     return { t: 'reference', op: m[2] ? 'newtab' : /^(?:click|tap)$/i.test(m[1]) ? 'click' : 'open' };
   }
