@@ -312,7 +312,12 @@ async function startCamera(): Promise<void> {
     } else if (name === 'NotReadableError' || name === 'TrackStartError') {
       setStatus('The camera is busy or blocked by another app. Close Camera, Teams, or Meet, then retry.', true);
     } else if (stage === 'model') {
-      setStatus(`Camera opened, but the hand model could not load: ${error instanceof Error ? error.message : String(error)}. Check your internet connection and retry.`, true);
+      const detail = error instanceof Error ? error.message : String(error);
+      if (/content security policy|wasm-(?:unsafe-)?eval|script-src/i.test(detail)) {
+        setStatus('Chrome is running an older JARVIS extension build without WebAssembly permission. Reload the v3.1.1 extension from chrome://extensions, then reopen Virtual Reality controls.', true);
+      } else {
+        setStatus(`Camera opened, but the hand model could not load: ${detail}. Check your internet connection and retry.`, true);
+      }
     } else {
       setStatus(error instanceof Error ? error.message : 'Could not start hand controls.', true);
     }

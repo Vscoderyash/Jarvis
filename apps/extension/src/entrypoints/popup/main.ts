@@ -8,6 +8,7 @@ const byId = <T extends HTMLElement>(id: string): T => {
 
 const accessInput = byId<HTMLInputElement>('a');
 const message = byId<HTMLElement>('m');
+byId<HTMLElement>('version').textContent = `Extension v${chrome.runtime.getManifest().version}`;
 const language = byId<HTMLSelectElement>('l');
 const replyLanguage = byId<HTMLSelectElement>('rl');
 const voice = byId<HTMLSelectElement>('v');
