@@ -10,6 +10,7 @@ export type ParsedCommand =
   | { t: 'scroll'; d: string }
   | { t: 'media'; op: string; n?: number }
   | { t: 'page' | 'info'; op: string }
+  | { t: 'region'; x: 'left' | 'center' | 'right'; y: 'top' | 'center' | 'bottom' }
   | { t: 'math'; e: string }
   | { t: 'agent'; goal: string }
   | { t: 'vr'; op: 'start' | 'stop' | 'pause' | 'resume' }
@@ -67,6 +68,16 @@ export function parseCmd(text: string): ParsedCommand | null {
   if (/^(?:stop|disable|turn off|close)\s+(?:virtual reality|vr)(?:\s+mode)?$/i.test(s)) return { t: 'vr', op: 'stop' };
   if ((m = s.match(/^(click|tap|open|follow|go(?:\s+to)?)(?:\s+on)?\s+(?:that|this|there|it|the one|the link)(?:\s+(?:link|button|one))?(\s+in\s+(?:a\s+)?new\s+tab)?$/i))) {
     return { t: 'reference', op: m[2] ? 'newtab' : /^(?:click|tap)$/i.test(m[1]) ? 'click' : 'open' };
+  }
+  if ((m = s.match(/^(?:click|tap|press)(?:\s+(?:on|in|at))?\s+(?:the\s+)?(left|right|center|middle|top|bottom|upper|lower)(?:\s+(left|right|center|middle|top|bottom|upper|lower))?(?:\s+(?:side|half|area|edge|corner|of\s+(?:the\s+)?(?:screen|page)))?$/i))) {
+    const directions = [m[1].toLowerCase(), m[2]?.toLowerCase()].filter(Boolean);
+    const xDirection = directions.find((direction) => ['left', 'right'].includes(direction));
+    const yDirection = directions.find((direction) => ['top', 'upper', 'bottom', 'lower'].includes(direction));
+    return {
+      t: 'region',
+      x: xDirection === 'left' ? 'left' : xDirection === 'right' ? 'right' : 'center',
+      y: yDirection === 'top' || yDirection === 'upper' ? 'top' : yDirection === 'bottom' || yDirection === 'lower' ? 'bottom' : 'center',
+    };
   }
   if ((m = s.match(/^(?:open|go to|visit)\s+(.+?)\s+in\s+(?:a\s+)?new\s+tab$/i))) return { t: 'tabs', op: 'new', url: toUrl(m[1]) };
   if ((m = s.match(/^(youtube|google|amazon|github|wikipedia)\s+(?:search|find)\s+(?:for\s+)?(.+)$/i))) return { t: 'nav', url: SEARCH[m[1].toLowerCase()] + encodeURIComponent(m[2]) };

@@ -1,6 +1,6 @@
 const MAX_ATTACHMENTS = 8;
 // Keep base64 JSON requests safely below Vercel Functions' 4.5 MB request limit.
-const MAX_TOTAL_BYTES = 3_150_000;
+const MAX_TOTAL_BYTES = 3_300_000;
 const MAX_EXTRACTED_CHARS = 80_000;
 const MAX_PDF_PAGES = 100;
 const MAX_DOCX_UNCOMPRESSED_BYTES = 20_000_000;
@@ -11,7 +11,11 @@ const TEXT_EXTENSIONS = new Set([
   '.ts', '.tsx', '.jsx', '.py', '.java', '.c', '.cc', '.cpp', '.h', '.hpp', '.go', '.rs', '.rb', '.php', '.sql',
   '.sh', '.bat', '.ps1', '.yml', '.yaml', '.toml', '.ini', '.log', '.diff', '.patch', '.env.example', '.ipynb',
   '.rtf', '.rst', '.properties', '.tex', '.lua', '.swift', '.kt', '.scala', '.dart', '.vue', '.svelte', '.astro', '.graphql',
-  '.proto', '.gradle', '.dockerfile', '.makefile', '.conf', '.lock',
+  '.proto', '.gradle', '.dockerfile', '.makefile', '.readme', '.license', '.notice', '.procfile', '.justfile', '.gitignore', '.npmrc', '.nvmrc', '.editorconfig', '.conf', '.lock',
+]);
+const NAMED_TEXT_FILES = new Map([
+  ['dockerfile', '.dockerfile'], ['makefile', '.makefile'], ['readme', '.readme'], ['license', '.license'], ['notice', '.notice'],
+  ['procfile', '.procfile'], ['justfile', '.justfile'], ['.gitignore', '.gitignore'], ['.npmrc', '.npmrc'], ['.nvmrc', '.nvmrc'], ['.editorconfig', '.editorconfig'],
 ]);
 const IMAGE_TYPES = new Map([
   ['.png', 'image/png'],
@@ -31,6 +35,12 @@ function badRequest(message) {
 function safeName(value) {
   const name = String(value || 'attachment').replace(/\\/g, '/').split('/').pop().replace(/[\r\n\0]/g, '').trim();
   return name.slice(0, 120) || 'attachment';
+}
+
+function extensionForName(value) {
+  const base = String(value || '').replace(/\\/g, '/').split('/').pop().toLowerCase();
+  if (base.endsWith('.env.example')) return '.env.example';
+  return NAMED_TEXT_FILES.get(base) || require('node:path').extname(base);
 }
 
 function hasMagic(ext, buffer) {
@@ -113,7 +123,7 @@ function officeText(ext, buffer, entries) {
   if (ext === '.zip') {
     return entries.filter(entry => {
       const path = entry.name.toLowerCase();
-      return !path.endsWith('/') && !/(^|\/)(node_modules|\.git|dist|build)\//.test(path) && TEXT_EXTENSIONS.has(require('path').extname(path));
+      return !path.endsWith('/') && !/(^|\/)(node_modules|\.git|dist|build)\//.test(path) && TEXT_EXTENSIONS.has(extensionForName(path));
     }).slice(0, 300).map(entry => `--- ${entry.name} ---\n${readZipText(buffer, entry)}`).join('\n\n');
   }
   if (ext === '.pptx') {
@@ -143,7 +153,7 @@ function decodeAttachment(input) {
   if (!input || typeof input !== 'object' || typeof input.data !== 'string') throw badRequest('Each attachment must include base64 file data.');
   const name = safeName(input.name);
   const lower = name.toLowerCase();
-  const ext = lower.endsWith('.env.example') ? '.env.example' : /^(dockerfile|makefile)$/i.test(lower) ? `.${lower}` : require('path').extname(lower);
+  const ext = extensionForName(lower);
   const allowed = TEXT_EXTENSIONS.has(ext) || IMAGE_TYPES.has(ext) || ['.pdf', '.docx', '.pptx', '.xlsx', '.zip'].includes(ext);
   if (!allowed) throw badRequest(`Unsupported file type: ${name}`);
   if (!input.data || input.data.length > Math.ceil(MAX_TOTAL_BYTES * 4 / 3) + 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(input.data) || input.data.length % 4 !== 0) {
@@ -182,7 +192,7 @@ async function readAttachments(inputs) {
   if (!Array.isArray(inputs) || inputs.length > MAX_ATTACHMENTS) throw badRequest(`Attach up to ${MAX_ATTACHMENTS} files at a time.`);
   const decoded = inputs.map(decodeAttachment);
   const totalBytes = decoded.reduce((sum, file) => sum + file.buffer.length, 0);
-  if (totalBytes > MAX_TOTAL_BYTES) throw badRequest('Attachments exceed the 3.15 MB total size limit.');
+  if (totalBytes > MAX_TOTAL_BYTES) throw badRequest('Attachments exceed the 3.3 MB total size limit.');
 
   const documents = [];
   const images = [];

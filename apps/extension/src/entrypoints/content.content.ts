@@ -243,7 +243,7 @@ export default defineContentScript({
     } else if (a.action === 'select') {
       if (el instanceof HTMLSelectElement) { const want = String(a.text || '').toLowerCase(), op = [...el.options].find(o => o.text.toLowerCase().includes(want) || o.value.toLowerCase() === want); if (op) { el.value = op.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); job.history.push('selected ' + op.text); } else job.history.push('option not found: ' + a.text); } else { el.click(); job.history.push('opened dropdown'); }
     } else job.history.push('unknown action');
-    await sleep(700); return 'go';
+    await sleep(brain === 'smart' ? 450 : 120); return 'go';
   }
   const sigPage = () => location.href + '|' + document.title + '|' + document.body.innerText.length + '|' + document.body.innerText.slice(0, 200);
   async function loop() {
@@ -257,7 +257,7 @@ export default defineContentScript({
       }
       while (job && job.status === 'running') {
         if (job.steps >= 35) { await finish('Step limit reached. Tell me to continue if needed.'); break; }
-        const rc = recall(job.goal), payload = { goal: job.goal, playbook: playbookFor(), examples: rc.examples, lessons: rc.lessons, userFacts: facts.slice(0, 15), plan: job.plan, lastResult: job.last, hint: job.hint, url: location.href, title: document.title, text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 1200), elements: (() => { const all = snap(); return [...all.filter(e => e.onScreen), ...all.filter(e => !e.onScreen)].slice(0, 60); })(), history: job.history.slice(-8) };
+        const rc = recall(job.goal), payload = { goal: job.goal, playbook: playbookFor(), examples: rc.examples, lessons: rc.lessons, userFacts: facts.slice(0, 15), plan: job.plan, lastResult: job.last, hint: job.hint, url: location.href, title: document.title, text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 2200), elements: (() => { const all = snap(500); return [...all.filter(e => e.onScreen), ...all.filter(e => !e.onScreen)].slice(0, 100); })(), history: job.history.slice(-8) };
         const res = await bg({ type: 'ask', messages: [{ role: 'user', content: JSON.stringify(payload) }] });
         if (!res || res.error) { if (job.status !== 'running') break; say('e', (res && res.error) || 'No response from JARVIS server.'); await finish(); break; }
         const a = res.reply || parse(res.text); job.steps++;
@@ -474,6 +474,21 @@ export default defineContentScript({
       const el = pick(c.q); if (!el) { const sw = c.q; say('e', `I can't see "${sw}" on this page. Say "scroll down" and try again, or describe it differently.`); return true; }
       const label = (el.innerText || (el as PageElement).value || el.getAttribute('aria-label') || c.q).trim().slice(0, 40); if (!(await mayClick(el, label))) return true; await touch(el); el.click(); say('a', 'Clicked ' + label + '.'); return true;
     }
+    if (c.t === 'region') {
+      const aimX = c.x === 'left' ? 0.16 : c.x === 'right' ? 0.84 : 0.5;
+      const aimY = c.y === 'top' ? 0.16 : c.y === 'bottom' ? 0.84 : 0.5;
+      const candidates = snap(900).flatMap((item) => {
+        const el = targetMap[item.id];
+        if (!item.onScreen || !el?.isConnected || el.matches(':disabled,[aria-disabled="true"]') || (!el.matches(SEMANTIC_TARGETS) && getComputedStyle(el).cursor !== 'pointer')) return [];
+        const rect = el.getBoundingClientRect(), x = (rect.left + rect.width / 2) / innerWidth, y = (rect.top + rect.height / 2) / innerHeight;
+        if ((c.x === 'left' && x > 0.48) || (c.x === 'right' && x < 0.52) || (c.y === 'top' && y > 0.48) || (c.y === 'bottom' && y < 0.52)) return [];
+        return [{ el, distance: Math.hypot(x - aimX, y - aimY), label: targetLabel(el) }];
+      }).sort((a, b) => a.distance - b.distance);
+      const target = candidates[0];
+      if (!target) { say('e', `I could not find a clickable item in the ${c.y === 'center' ? '' : c.y + ' '}${c.x} area.`); return true; }
+      if (!(await mayClick(target.el, target.label))) return true;
+      await touch(target.el); target.el.click(); say('a', `Clicked ${target.label || 'the nearest control'} in that area.`); return true;
+    }
     if (c.t === 'type') {
       const field = (e: { tag: string; type?: string }) => /^(input|textarea)$/.test(e.tag) && !/^(hidden|checkbox|radio|submit|button|file)$/.test(e.type || '');
       let el = c.q ? pick(c.q, field) : null;
@@ -496,7 +511,7 @@ export default defineContentScript({
         await store.set('q' + tabId, q.slice(1));   // remove first, so a page change never repeats a command
         say('u', q[0]);
         if (!(await local(q[0]))) await start(q[0]);
-        await sleep(250);
+        await sleep(80);
       }
     } finally { draining = false; }
   }
