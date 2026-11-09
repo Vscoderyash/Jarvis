@@ -30,7 +30,7 @@ from handcontrol import HandController              # noqa: E402
 
 DEFAULTS = {"api_url": "https://jarvisv02.vercel.app/api/chat", "address": "sir", "voice": "en-GB-RyanNeural", "speak": True, "speech_rate": "+0%", "system_speech_rate": 165, "whisper_model": "small",
             "language": "auto", "wake_word": "jarvis", "wake_required": True, "active_seconds": 12, "mic_device": None, "bridge_port": 8765, "ui_scale": 1.0, "max_steps": 12, "brain": "fast",
-            "vr_response": 0.4, "vr_deadzone": 0.003, "vr_pinch_press_ratio": 0.30, "vr_pinch_release_ratio": 0.48, "vr_stable_frames": 2, "vr_detection_confidence": 0.55, "vr_presence_confidence": 0.5, "vr_tracking_confidence": 0.5}
+            "vr_response": 0.4, "vr_deadzone": 0.003, "vr_scroll_speed": 1.0, "vr_pinch_press_ratio": 0.30, "vr_pinch_release_ratio": 0.48, "vr_stable_frames": 2, "vr_detection_confidence": 0.55, "vr_presence_confidence": 0.5, "vr_tracking_confidence": 0.5}
 WAKE_WORDS = ["jarvis", "jarvas", "jarves", "jervis", "javis", "jar vis", "jar this", "jar is", "garvis", "gar vis", "charvis", "travis", "service", "java is", "jarvic"]
 
 
@@ -128,6 +128,10 @@ class App:
             _paused, message = self.hand_control.pause(); self.say(message); return
         if tool == "_vr_resume":
             _resumed, message = self.hand_control.resume(); self.say(message); return
+        if tool == "_vr_keyboard":
+            _changed, message = self.hand_control.set_keyboard_mode(True); self.say(message); return
+        if tool == "_vr_browse":
+            _changed, message = self.hand_control.set_keyboard_mode(False); self.say(message); return
         if tool.startswith("_") and tool not in ("_exit",): self.learn(tool, args); return
         if tool == "_exit": self.say(f"Goodbye, {self.cfg['address']}."); self.wait_quiet(); self.quit(); return
         if tool in ("open_url", "search_web") and self.bridge.connected and tool == "open_url":
@@ -179,7 +183,7 @@ class App:
             if self.cfg["wake_required"]:
                 m = self.wake.match(text)
                 parsed = parse(text)
-                direct_vr = bool(parsed and parsed.get("tool") in ("_vr_start", "_vr_stop", "_vr_pause", "_vr_resume"))
+                direct_vr = bool(parsed and parsed.get("tool") in ("_vr_start", "_vr_stop", "_vr_pause", "_vr_resume", "_vr_keyboard", "_vr_browse"))
                 if m:
                     rest = text[m.end():].strip()
                     self.active_until = time.time() + self.cfg["active_seconds"]

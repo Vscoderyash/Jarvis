@@ -13,7 +13,7 @@ export type ParsedCommand =
   | { t: 'region'; x: 'left' | 'center' | 'right'; y: 'top' | 'center' | 'bottom' }
   | { t: 'math'; e: string }
   | { t: 'agent'; goal: string }
-  | { t: 'vr'; op: 'start' | 'stop' | 'pause' | 'resume' }
+  | { t: 'vr'; op: 'start' | 'stop' | 'pause' | 'resume' | 'keyboard' | 'browse' }
   | { t: 'nth'; n: number; kind: string }
   | { t: 'type'; text: string; q?: string; submit: boolean }
   | { t: 'reference'; op: 'click' | 'open' | 'newtab' };
@@ -64,6 +64,8 @@ export function parseCmd(text: string): ParsedCommand | null {
   if (/^(stop|cancel|abort|never mind)$/i.test(s)) return { t: 'stop' };
   if (/^(?:pause|suspend|freeze)\s+(?:the\s+)?(?:virtual reality|vr)(?:\s+mode)?$/i.test(s)) return { t: 'vr', op: 'pause' };
   if (/^(?:resume|continue)\s+(?:the\s+)?(?:virtual reality|vr)(?:\s+mode)?$/i.test(s)) return { t: 'vr', op: 'resume' };
+  if (/^(?:(?:air|virtual) keyboard|keyboard mode|typing mode)$/i.test(s)) return { t: 'vr', op: 'keyboard' };
+  if (/^(?:browse|pointer|mouse) mode$/i.test(s)) return { t: 'vr', op: 'browse' };
   if (/^(?:virtual reality|vr(?:\s+mode)?|(?:start|enable|activate|turn on)\s+(?:virtual reality|vr)(?:\s+mode)?)$/i.test(s)) return { t: 'vr', op: 'start' };
   if (/^(?:stop|disable|turn off|close)\s+(?:virtual reality|vr)(?:\s+mode)?$/i.test(s)) return { t: 'vr', op: 'stop' };
   if ((m = s.match(/^(click|tap|open|follow|go(?:\s+to)?)(?:\s+on)?\s+(?:that|this|there|it|the one|the link)(?:\s+(?:link|button|one))?(\s+in\s+(?:a\s+)?new\s+tab)?$/i))) {

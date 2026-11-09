@@ -1,6 +1,7 @@
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
 type Point = { x: number; y: number };
+type PinchKind = 'left' | 'right' | 'double';
 type Key = { label: string; value: string; kind?: 'shift' | 'backspace' };
 type GestureMode = 'browse' | 'keyboard';
 type TrackingSettings = { response: number; cursorGain: number; pinchSensitivity: number; scrollSpeed: number; handConfidence: number; cameraDeviceId: string };
@@ -42,10 +43,11 @@ const trackingSettingsReady = chrome.storage.local.get('gestureSettings').then((
 }).catch(() => {});
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 const rows: Key[][] = [
+  [...'1234567890'].map((value) => ({ label: value, value })),
   [...'QWERTYUIOP'].map((value) => ({ label: value, value: value.toLowerCase() })),
   [...'ASDFGHJKL'].map((value) => ({ label: value, value: value.toLowerCase() })),
   [{ label: '⇧', value: '', kind: 'shift' }, ...[...'ZXCVBNM'].map((value) => ({ label: value, value: value.toLowerCase() })), { label: '⌫', value: '', kind: 'backspace' }],
-  [{ label: 'SPACE', value: ' ' }],
+  [{ label: 'SPACE', value: ' ' }, ...[...'. , - @ :'.replaceAll(' ', '')].map((value) => ({ label: value, value }))],
 ];
 
 let mode: GestureMode = 'browse';
@@ -60,6 +62,8 @@ let lastFrame = 0;
 let lastCursor = 0;
 let lastStatus = 0;
 let pinchWasDown = false;
+let pinchGesture: PinchKind | null = null;
+let pinchCandidate: PinchKind | null = null;
 let pinchStableFrames = 0;
 let pinchStart: Point | null = null;
 let previousPinch: Point | null = null;
@@ -69,6 +73,7 @@ let lastScroll = 0;
 let lastClickAt = 0;
 let lastTypedAt = 0;
 let smoothedPoint: Point | null = null;
+let scrollSignPoint: Point | null = null;
 let latestRawPoint: Point | null = null;
 let cursorOffset: Point = { x: 0, y: 0 };
 let trackingPaused = false;
@@ -171,14 +176,17 @@ function setMode(next: GestureMode): void {
   $('browseHelp').toggleAttribute('hidden', mode !== 'browse');
   $('typeHelp').toggleAttribute('hidden', mode !== 'keyboard');
   keysElement.hidden = mode !== 'keyboard' || !running;
-  if (mode === 'browse' && running) setStatus('Browse mode: point to move, pinch and release to click, pinch and drag to scroll.');
-  if (mode === 'keyboard' && running) setStatus('Air keyboard ready. Focus a text box on the page, then point at a key and pinch.');
+  if (mode === 'browse' && running) setStatus('Browse: point to move; thumb-index clicks, thumb-middle opens the page menu, thumb-ring double-clicks.');
+  if (mode === 'keyboard' && running) setStatus('Air keyboard ready. Focus a text field, then point at a key and thumb-index pinch.');
   activeKey = null;
   airShift = false;
   pinchWasDown = false;
+  pinchGesture = null;
+  pinchCandidate = null;
   pinchStableFrames = 0;
   pinchStart = null;
   previousPinch = null;
+  scrollSignPoint = null;
   updateKeyHighlight(null);
   if (mode === 'keyboard') cursor.style.display = 'none';
 }
@@ -220,7 +228,7 @@ async function selectActiveTab(): Promise<void> {
       await chrome.scripting.executeScript({ target: { tabId: next }, files: ['content-scripts/content.js'] });
       await chrome.tabs.sendMessage(next, { type: 'gesture:ready' });
     } catch {
-      setStatus('JARVIS cannot control this protected browser page. Try a normal website tab.', true);
+      setStatus('Chrome blocked page access. Use a normal website tab, set JARVIS Site access to “On all sites”, then refresh the tab.', true);
       return;
     }
   }
@@ -231,8 +239,8 @@ chrome.tabs.onActivated.addListener(() => { void selectActiveTab(); });
 chrome.windows.onFocusChanged.addListener(() => { void selectActiveTab(); });
 
 function keyAt(point: Point): { row: number; col: number } | null {
-  if (point.y < 0.47) return null;
-  const row = clamp(Math.floor(((point.y - 0.47) / 0.49) * rows.length), 0, rows.length - 1);
+  if (point.y < 0.42) return null;
+  const row = clamp(Math.floor(((point.y - 0.42) / 0.56) * rows.length), 0, rows.length - 1);
   const col = clamp(Math.floor(point.x * rows[row].length), 0, rows[row].length - 1);
   return { row, col };
 }
@@ -272,17 +280,21 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
     if (handVisible && mode === 'browse') void sendToActivePage({ type: 'gesture:off' });
     handVisible = false;
     pinchWasDown = false;
+    pinchGesture = null;
+    pinchCandidate = null;
     pinchStableFrames = 0;
     pinchStart = null;
     previousPinch = null;
+    scrollSignPoint = null;
     dragDistance = 0;
     scrollRemainder = 0;
     smoothedPoint = null;
     latestRawPoint = null;
+    airShift = false;
     centerCursorButton.disabled = true;
     trackingBadge.textContent = 'Hand: not found';
     updateKeyHighlight(null);
-    if (mode === 'browse') cursor.style.display = 'none';
+  if (mode === 'browse') cursor.style.display = 'none';
     setCameraStatus('Show one hand to the camera, palm facing toward you.', now);
     return;
   }
@@ -302,21 +314,34 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
     : mappedPoint;
   smoothedPoint = point;
   const palmScale = Math.max(0.08, Math.hypot(hand[0].x - hand[9].x, hand[0].y - hand[9].y));
-  const pinchDistance = Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) / palmScale;
+  const pinchRatios: Record<PinchKind, number> = {
+    left: Math.hypot(hand[4].x - hand[8].x, hand[4].y - hand[8].y) / palmScale,
+    right: Math.hypot(hand[4].x - hand[12].x, hand[4].y - hand[12].y) / palmScale,
+    double: Math.hypot(hand[4].x - hand[16].x, hand[4].y - hand[16].y) / palmScale,
+  };
   const wasPinching = pinchWasDown;
-  const pinchDown = pinchDistance < 0.29 * trackingSettings.pinchSensitivity;
-  const pinchUp = pinchDistance < 0.42 * trackingSettings.pinchSensitivity;
-  const rawPinching = wasPinching ? pinchUp : pinchDown;
-  if (rawPinching !== wasPinching) {
-    pinchStableFrames += 1;
-    if (pinchStableFrames >= 2) { pinchWasDown = rawPinching; pinchStableFrames = 0; }
-  } else pinchStableFrames = 0;
-  const pinching = pinchWasDown;
+  const previousGesture = pinchGesture;
+  const rawGesture = previousGesture
+    ? pinchRatios[previousGesture] < 0.42 * trackingSettings.pinchSensitivity ? previousGesture : null
+    : (['left', 'right', 'double'] as PinchKind[]).find((kind) => pinchRatios[kind] < 0.27 * trackingSettings.pinchSensitivity) || null;
+  if (rawGesture !== previousGesture) {
+    if (rawGesture === pinchCandidate) pinchStableFrames += 1;
+    else { pinchCandidate = rawGesture; pinchStableFrames = 1; }
+    if (pinchStableFrames >= 2) {
+      pinchGesture = rawGesture;
+      pinchWasDown = rawGesture !== null;
+      pinchCandidate = null;
+      pinchStableFrames = 0;
+    }
+  } else { pinchCandidate = null; pinchStableFrames = 0; }
+  const pinching = pinchGesture !== null;
+  const startedGesture = !wasPinching && pinching ? pinchGesture : null;
+  const releasedGesture = wasPinching && !pinching ? previousGesture : null;
 
   if (mode === 'keyboard') {
     const hovered = keyAt(point);
     updateKeyHighlight(hovered);
-    if (pinching && !wasPinching && hovered && now - lastTypedAt > 180) { lastTypedAt = now; void pressAirKey(hovered); }
+    if (startedGesture === 'left' && hovered && now - lastTypedAt > 180) { lastTypedAt = now; void pressAirKey(hovered); }
     return;
   }
 
@@ -326,12 +351,26 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
     void sendToActivePage({ type: 'gesture:cursor', nx: point.x, ny: point.y });
   }
 
+  const scrollSign = !pinching && hand[8].y < hand[6].y && hand[12].y < hand[10].y && hand[16].y > hand[14].y && hand[20].y > hand[18].y;
+  if (scrollSign) {
+    if (scrollSignPoint && now - lastScroll > 80) {
+      const delta = point.y - scrollSignPoint.y;
+      if (Math.abs(delta) > 0.003) {
+        lastScroll = now;
+        void sendToActivePage({ type: 'gesture:scroll', nx: point.x, ny: point.y, delta: -delta * 1.25 * trackingSettings.scrollSpeed });
+      }
+    }
+    scrollSignPoint = point;
+    return;
+  }
+  scrollSignPoint = null;
+
   if (pinching && !wasPinching) {
     pinchStart = point;
     previousPinch = point;
     dragDistance = 0;
     scrollRemainder = 0;
-  } else if (pinching && wasPinching && previousPinch && pinchStart) {
+  } else if (pinching && wasPinching && previousPinch && pinchStart && pinchGesture === 'left') {
     const dy = point.y - previousPinch.y;
     scrollRemainder += dy;
     dragDistance += Math.abs(dy);
@@ -344,9 +383,10 @@ function processHand(result: ReturnType<HandLandmarker['detectForVideo']>, now: 
   } else if (!pinching && wasPinching && pinchStart) {
     if (dragDistance <= 0.035 && now - lastClickAt > 350) {
       lastClickAt = now;
-      void sendToActivePage({ type: 'gesture:click', nx: point.x, ny: point.y }).then((result) => {
-        if (result?.ok === false) setStatus(String(result.message || 'Pinch click was not accepted.'), true);
-        else if (result?.ok) setStatus('Pinch click sent to the active page.');
+      const button = releasedGesture || 'left';
+      void sendToActivePage({ type: 'gesture:click', nx: point.x, ny: point.y, button }).then((result) => {
+        if (result?.ok === false) setStatus(String(result.message || 'Pinch action was not accepted.'), true);
+        else if (result?.ok) setStatus(button === 'right' ? 'Page context click sent.' : button === 'double' ? 'Double-click sent.' : 'Pinch click sent to the active page.');
       });
     }
     pinchStart = null;
@@ -378,11 +418,14 @@ function setTrackingPaused(next: boolean): void {
   centerCursorButton.disabled = next || !latestRawPoint;
   if (next) {
     pinchWasDown = false;
+    pinchGesture = null;
+    pinchCandidate = null;
     pinchStableFrames = 0;
     pinchStart = null;
     previousPinch = null;
     dragDistance = 0;
     scrollRemainder = 0;
+    scrollSignPoint = null;
     cursor.style.display = 'none';
     if (activeTabId !== null) void chrome.tabs.sendMessage(activeTabId, { type: 'gesture:off' }).catch(() => {});
     setStatus('Hand tracking paused. Camera preview remains on; resume when ready.');
@@ -524,11 +567,14 @@ async function stopCamera(showMessage = true): Promise<void> {
   cursor.style.display = 'none';
   if (activeTabId !== null) void chrome.tabs.sendMessage(activeTabId, { type: 'gesture:off' }).catch(() => {});
   pinchWasDown = false;
+  pinchGesture = null;
+  pinchCandidate = null;
   pinchStableFrames = 0;
   pinchStart = null;
   previousPinch = null;
   dragDistance = 0;
   scrollRemainder = 0;
+  scrollSignPoint = null;
   smoothedPoint = null;
   latestRawPoint = null;
   cursorOffset = { x: 0, y: 0 };

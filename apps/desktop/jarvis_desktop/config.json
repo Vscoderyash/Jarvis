@@ -19,6 +19,7 @@
   "max_steps": 12,
   "brain": "fast",
   "vr_response": 0.4,
+  "vr_scroll_speed": 1.0,
   "vr_deadzone": 0.003,
   "vr_pinch_press_ratio": 0.3,
   "vr_pinch_release_ratio": 0.48,

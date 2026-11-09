@@ -23,6 +23,9 @@ handControls.onclick = () => {
   if (activeWindowId === null || !chrome.sidePanel) { message.textContent = 'Camera controls need Chrome 116 or newer.'; return; }
   void chrome.sidePanel.open({ windowId: activeWindowId }).then(() => window.close()).catch(() => { message.textContent = 'Could not open the Virtual Reality side panel. Try from a normal website tab.'; });
 };
+byId<HTMLButtonElement>('siteHelp').onclick = () => {
+  void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+};
 const trainingKeys = ['skills', 'facts', 'aliases', 'exp', 'lessons'];
 const getStored = async (keys: string | string[]): Promise<Record<string, unknown>> =>
   await chrome.storage.local.get(keys) as Record<string, unknown>;
@@ -57,15 +60,14 @@ byId<HTMLButtonElement>('w').onclick = async () => {
   }
   const wake = () => chrome.tabs.sendMessage(tab.id!, { type: 'wake' });
   try {
-    await wake();
-    window.close();
-  } catch {
-    try {
+    try { await wake(); }
+    catch {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content-scripts/content.js'] });
-      setTimeout(() => wake().then(() => window.close()).catch(() => { message.textContent = 'Could not reach this page. Refresh it once and try again.'; }), 700);
-    } catch (error) {
-      message.textContent = `Blocked on this page: ${error instanceof Error ? error.message : String(error)}`;
+      await wake();
     }
+    window.close();
+  } catch (error) {
+    message.textContent = `Chrome could not give JARVIS access to this tab. Open the JARVIS extension details, set Site access to “On all sites”, then refresh the page. Chrome blocks its own settings and store pages. ${error instanceof Error ? error.message : String(error)}`;
   }
 };
 

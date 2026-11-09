@@ -45,7 +45,7 @@ API ACCESS (401)
  The website route is /api/chat; a 401 means the route was reached but the local token is missing or does not match.
 
 VIRTUAL REALITY HAND CONTROL
- Say "virtual reality" to start the desktop camera and move the mouse with your index fingertip. Pinch and release to click; keep pinching while moving to drag. Say "pause virtual reality" to pause safely, then "resume virtual reality" to continue. Press P in the preview to toggle pause; press Q or say "stop virtual reality" to stop. These phrases work without saying the wake word first. The live preview and hand tracking run locally; the first use downloads the hand model. Pressing a screen corner triggers PyAutoGUI's failsafe. Cursor smoothing, jitter deadzone, pinch thresholds, required stable frames, and hand confidence can be tuned in config.json.
+ Say "virtual reality" to start the desktop camera. The desktop app uses OS-level pointer and keyboard input, so the active cursor can move and act in any normal laptop application, not only browser pages. Index-thumb pinch and release clicks; keep it pinched to drag. Middle-thumb pinch right-clicks, ring-thumb pinch double-clicks, and a V sign moved up/down scrolls the active app. Press K in the preview or say "air keyboard" to show the on-camera keyboard; focus a text field in the app, point at a key, and pinch to type. It supports numbers, letters, punctuation, Shift, Space, and Backspace, and never presses Enter. Say "browse mode" to return to pointer control. Say "pause virtual reality" to pause, "resume virtual reality" to continue, and "stop virtual reality" to stop. Press P to pause, K to switch modes, or Q to stop in the preview. These phrases work without saying the wake word first. The live preview and hand tracking run locally; the first use downloads the hand model. Pressing a screen corner triggers PyAutoGUI's failsafe. Cursor smoothing, jitter deadzone, pinch thresholds, required stable frames, scroll speed, and hand confidence can be tuned in config.json. UAC prompts, the Windows lock screen, and other secure desktop surfaces remain controlled by Windows.
  The installer adds MediaPipe and OpenCV from requirements-vr.txt. If their install reports an error, rerun install_windows.bat with Python 3.10-3.12, or activate the venv and run: pip install -r requirements-vr.txt. On macOS, grant camera and Accessibility permissions to Terminal/JARVIS. On Windows, allow camera access for desktop apps in Settings > Privacy & security > Camera.
 
 BROWSER VIRTUAL REALITY
@@ -62,6 +62,7 @@ SETTINGS  (jarvis_desktop/config.json)
  api_url        the built-in JARVIS website API
  camera_index   camera number (0 is the default camera)
  vr_response    cursor response from 0.12 (smooth) to 0.85 (fast); default 0.4
+ vr_scroll_speed    hand scroll speed from 0.4 to 2.5; default 1.0
  vr_deadzone    ignore tiny movement jitter from 0.0 to 0.03; default 0.003
  vr_pinch_press_ratio    normalized pinch distance to press; default 0.30
  vr_pinch_release_ratio  normalized distance to release; default 0.48

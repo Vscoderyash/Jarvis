@@ -50,6 +50,8 @@ def parse(text: str):
     m = None
     if re.fullmatch(r"(?:pause|suspend|freeze) (?:the )?(?:virtual reality|vr)(?: mode)?", low): return {"tool": "_vr_pause", "args": {}}
     if re.fullmatch(r"(?:resume|continue) (?:the )?(?:virtual reality|vr)(?: mode)?", low): return {"tool": "_vr_resume", "args": {}}
+    if re.fullmatch(r"(?:air|virtual) keyboard|keyboard mode|typing mode", low): return {"tool": "_vr_keyboard", "args": {}}
+    if re.fullmatch(r"(?:browse|pointer|mouse) mode", low): return {"tool": "_vr_browse", "args": {}}
     if re.fullmatch(r"(?:virtual reality|vr(?: mode)?|(?:start|enable|activate|turn on) (?:virtual reality|vr)(?: mode)?)", low): return {"tool": "_vr_start", "args": {}}
     if re.fullmatch(r"(?:stop|disable|turn off|close) (?:virtual reality|vr)(?: mode)?", low): return {"tool": "_vr_stop", "args": {}}
     if re.fullmatch(r"(stop|cancel|quiet|be quiet|shut up|never mind|enough|abort)", low): return {"tool": "_stop", "args": {}}

@@ -324,18 +324,26 @@ export default defineContentScript({
       void (async () => {
         const label = targetLabel(target).slice(0, 160);
         if (!(await mayClick(target, label))) { sendResponse({ ok: false, message: 'Click cancelled.' }); return; }
-        const pointer = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', isPrimary: true };
-        try { target.dispatchEvent(new PointerEvent('pointerdown', pointer)); } catch {}
-        target.dispatchEvent(new MouseEvent('mousedown', pointer));
-        try { target.dispatchEvent(new PointerEvent('pointerup', { ...pointer, buttons: 0 })); } catch {}
-        target.dispatchEvent(new MouseEvent('mouseup', { ...pointer, buttons: 0 }));
-        target.click(); sendResponse({ ok: true });
+        const button = m.button === 'right' ? 'right' : m.button === 'double' ? 'double' : 'left';
+        const clickOnce = (mouseButton: number) => {
+          const pointer = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: mouseButton, buttons: mouseButton === 2 ? 2 : 1, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+          try { target.dispatchEvent(new PointerEvent('pointerdown', pointer)); } catch {}
+          target.dispatchEvent(new MouseEvent('mousedown', pointer));
+          try { target.dispatchEvent(new PointerEvent('pointerup', { ...pointer, buttons: 0 })); } catch {}
+          target.dispatchEvent(new MouseEvent('mouseup', { ...pointer, buttons: 0 }));
+          if (mouseButton === 2) target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 2 }));
+          else target.click();
+        };
+        if (button === 'right') clickOnce(2);
+        else if (button === 'double') { clickOnce(0); clickOnce(0); target.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0, detail: 2 })); }
+        else clickOnce(0);
+        sendResponse({ ok: true });
       })().catch(() => sendResponse({ ok: false, message: 'The page did not accept that click.' }));
       return true;
     }
     if (m.type === 'gesture:type') {
       const value = String(m.value || '');
-      if (!/^[a-zA-Z]$/.test(value) && value !== ' ' && value !== '\b') { sendResponse({ ok: false, message: 'That key is not available.' }); return; }
+      if (!/^[a-zA-Z0-9.,@_:-]$/.test(value) && value !== ' ' && value !== '\b') { sendResponse({ ok: false, message: 'That key is not available.' }); return; }
       const active = document.activeElement as HTMLElement | null;
       if (!active || host.contains(active) || active instanceof HTMLInputElement && (active.disabled || active.readOnly || active.type === 'password' || !['text', 'search', 'url', 'email', 'tel'].includes(active.type)) || active instanceof HTMLTextAreaElement && (active.disabled || active.readOnly) || !active.isContentEditable && !(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) {
         sendResponse({ ok: false, message: 'Focus a regular text field on the page first. Password and sensitive fields are blocked.' }); return;

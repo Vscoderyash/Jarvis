@@ -10,7 +10,7 @@ export default defineConfig({
     content_security_policy: {
       extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
     },
-    permissions: ['storage', 'tabs', 'scripting', 'sessions', 'sidePanel'],
+    permissions: ['storage', 'tabs', 'scripting', 'sessions', 'sidePanel', 'activeTab'],
     host_permissions: ['<all_urls>'],
     side_panel: { default_path: 'sidepanel.html' },
     action: {
